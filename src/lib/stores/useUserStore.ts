@@ -1,7 +1,14 @@
 import { create } from "zustand";
 import { User } from "@/lib/types";
 import { auth } from "@/lib/firebase/client";
-import { GoogleAuthProvider, signInWithPopup, signOut as fbSignOut } from "firebase/auth";
+import {
+  GoogleAuthProvider,
+  signInWithPopup,
+  signOut as fbSignOut,
+  signInWithEmailAndPassword,
+  createUserWithEmailAndPassword,
+  updateProfile,
+} from "firebase/auth";
 
 interface UserState {
   user: User | null;
@@ -11,6 +18,8 @@ interface UserState {
   setLoading: (loading: boolean) => void;
   setError: (error: string | null) => void;
   login: () => Promise<void>;
+  loginWithEmail: (email: string, password: string) => Promise<void>;
+  signUpWithEmail: (email: string, password: string, displayName: string) => Promise<void>;
   logout: () => Promise<void>;
 }
 
@@ -106,6 +115,146 @@ export const useUserStore = create<UserState>((set) => ({
     } catch (err: any) {
       console.error("Login error:", err);
       set({ error: err.message || "Failed to log in", loading: false });
+      throw err;
+    }
+  },
+
+  loginWithEmail: async (email, password) => {
+    set({ loading: true, error: null });
+    try {
+      const result = await signInWithEmailAndPassword(auth, email, password);
+      const userObj = result.user;
+
+      const res = await fetch("/api/auth/save-tokens", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          uid: userObj.uid,
+          email: userObj.email,
+          displayName: userObj.displayName || email.split("@")[0],
+          photoURL: userObj.photoURL || "",
+          accessToken: "",
+          refreshToken: "",
+          tokenExpiry: null,
+        }),
+      });
+
+      if (!res.ok) {
+        throw new Error("Failed to save tokens on backend");
+      }
+
+      document.cookie = `session=${userObj.uid}; path=/; max-age=31536000; SameSite=Lax`;
+
+      const mappedUser: User = {
+        uid: userObj.uid,
+        email: userObj.email || "",
+        displayName: userObj.displayName || email.split("@")[0],
+        photoURL: userObj.photoURL || "",
+        googleAccessToken: "",
+        googleRefreshToken: "",
+        tokenExpiry: null,
+        preferences: {
+          defaultDomain: "personal",
+          workingHours: { start: 9, end: 18 },
+          theme: "system",
+          notificationsEnabled: true,
+          fcmToken: "",
+        },
+        learningCoefficients: {
+          underestimationFactor: 1.0,
+          preferredWorkHours: [9, 10, 14, 15, 20, 21],
+          avgProcrastinationBuffer: 2.0,
+          lastUpdated: null,
+        },
+        stats: {
+          totalCommitmentsCreated: 0,
+          totalCompleted: 0,
+          totalMissed: 0,
+          currentStreak: 0,
+          longestStreak: 0,
+          stressScore: 0,
+        },
+        createdAt: null,
+        lastActiveAt: null,
+      };
+
+      set({ user: mappedUser, loading: false });
+    } catch (err: any) {
+      console.error("Email login error:", err);
+      set({ error: err.message || "Failed to log in", loading: false });
+      throw err;
+    }
+  },
+
+  signUpWithEmail: async (email, password, displayName) => {
+    set({ loading: true, error: null });
+    try {
+      const result = await createUserWithEmailAndPassword(auth, email, password);
+      const userObj = result.user;
+
+      await updateProfile(userObj, { displayName });
+
+      const res = await fetch("/api/auth/save-tokens", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          uid: userObj.uid,
+          email: userObj.email,
+          displayName,
+          photoURL: "",
+          accessToken: "",
+          refreshToken: "",
+          tokenExpiry: null,
+        }),
+      });
+
+      if (!res.ok) {
+        throw new Error("Failed to initialize user on backend");
+      }
+
+      document.cookie = `session=${userObj.uid}; path=/; max-age=31536000; SameSite=Lax`;
+
+      const mappedUser: User = {
+        uid: userObj.uid,
+        email: userObj.email || "",
+        displayName,
+        photoURL: "",
+        googleAccessToken: "",
+        googleRefreshToken: "",
+        tokenExpiry: null,
+        preferences: {
+          defaultDomain: "personal",
+          workingHours: { start: 9, end: 18 },
+          theme: "system",
+          notificationsEnabled: true,
+          fcmToken: "",
+        },
+        learningCoefficients: {
+          underestimationFactor: 1.0,
+          preferredWorkHours: [9, 10, 14, 15, 20, 21],
+          avgProcrastinationBuffer: 2.0,
+          lastUpdated: null,
+        },
+        stats: {
+          totalCommitmentsCreated: 0,
+          totalCompleted: 0,
+          totalMissed: 0,
+          currentStreak: 0,
+          longestStreak: 0,
+          stressScore: 0,
+        },
+        createdAt: null,
+        lastActiveAt: null,
+      };
+
+      set({ user: mappedUser, loading: false });
+    } catch (err: any) {
+      console.error("Email signup error:", err);
+      set({ error: err.message || "Failed to sign up", loading: false });
       throw err;
     }
   },
