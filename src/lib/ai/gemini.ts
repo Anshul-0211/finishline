@@ -14,26 +14,60 @@ const TEMPERATURE_MAP: Record<EndpointType, number> = {
 };
 
 const getGeminiClient = () => {
-  const useVertex = process.env.GOOGLE_GENAI_USE_VERTEXAI === 'true' || !!process.env.GOOGLE_CLOUD_PROJECT;
+  const useVertex = process.env.GOOGLE_GENAI_USE_VERTEXAI === 'true';
+  const apiKey = process.env.GEMINI_API_KEY;
   
   if (useVertex) {
     const config: any = {
       vertexai: true,
-      project: process.env.GOOGLE_CLOUD_PROJECT,
-      location: process.env.GOOGLE_CLOUD_LOCATION || 'us-central1',
     };
-    if (process.env.GEMINI_API_KEY) {
-      config.apiKey = process.env.GEMINI_API_KEY;
+    if (apiKey) {
+      config.apiKey = apiKey;
+    } else {
+      config.project = process.env.GOOGLE_CLOUD_PROJECT;
+      config.location = process.env.GOOGLE_CLOUD_LOCATION || 'us-central1';
     }
     return new GoogleGenAI(config);
   }
 
-  const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
     throw new Error("GEMINI_API_KEY is not configured.");
   }
-  return new GoogleGenAI({ apiKey });
+
+  const tempProject = process.env.GOOGLE_CLOUD_PROJECT;
+  try {
+    // Temporarily delete to prevent auto-routing to Vertex AI
+    delete process.env.GOOGLE_CLOUD_PROJECT;
+    return new GoogleGenAI({ apiKey });
+  } finally {
+    if (tempProject !== undefined) {
+      process.env.GOOGLE_CLOUD_PROJECT = tempProject;
+    }
+  }
 };
+
+function toOpenApiSchema(schema: any): any {
+  if (Array.isArray(schema)) return schema;
+  if (!schema || typeof schema !== "object") return schema;
+
+  const result: any = {};
+  for (const key of Object.keys(schema)) {
+    // Strip draft-07/draft-2020-12 properties that Vertex AI OpenAPI generator rejects
+    if (key === "$schema" || key === "additionalProperties" || key === "definitions" || key === "$ref") {
+      continue;
+    }
+
+    let val = schema[key];
+    if (key === "type" && typeof val === "string") {
+      // Vertex AI expects uppercase type strings
+      val = val.toUpperCase();
+    } else if (typeof val === "object") {
+      val = toOpenApiSchema(val);
+    }
+    result[key] = val;
+  }
+  return result;
+}
 
 export async function callGroqFallback<T>(params: {
   systemInstruction: string;
@@ -46,7 +80,15 @@ export async function callGroqFallback<T>(params: {
     throw new Error("GROQ_API_KEY is not configured.");
   }
   
-  const jsonSchema = zodToJsonSchema(params.schema as any);
+  const rawSchema = typeof (params.schema as any).toJSONSchema === 'function'
+    ? (params.schema as any).toJSONSchema()
+    : zodToJsonSchema(params.schema as any);
+
+  const jsonSchema = { ...rawSchema };
+  if (jsonSchema && typeof jsonSchema === 'object') {
+    delete (jsonSchema as any).$schema;
+  }
+
   const schemaInstruction = `\n\n[CRITICAL] You must return a JSON object that strictly adheres to the following JSON schema:
 ${JSON.stringify(jsonSchema)}
 
@@ -92,23 +134,47 @@ export async function callGemini<T>(params: {
 
   const temperature = TEMPERATURE_MAP[endpointType];
 
+  const rawSchema = typeof (schema as any).toJSONSchema === 'function'
+    ? (schema as any).toJSONSchema()
+    : zodToJsonSchema(schema as any);
+
+  const jsonSchema = { ...rawSchema };
+  if (jsonSchema && typeof jsonSchema === 'object') {
+    delete (jsonSchema as any).$schema;
+  }
+
+  const schemaInstruction = `\n\n[CRITICAL] You must return a JSON object that strictly adheres to the following JSON schema:
+${JSON.stringify(jsonSchema)}
+
+Ensure that your JSON object has EXACTLY the keys defined in the schema above.
+For example, if the schema lists "reply" as a property/key, your output JSON must have a key named "reply" (NOT "message" or "text"). Do not add any markdown blocks or outside text.`;
+
   try {
+    const useVertex = process.env.GOOGLE_GENAI_USE_VERTEXAI === 'true';
     const ai = getGeminiClient();
+    const config: any = {
+      systemInstruction: systemInstruction + schemaInstruction,
+      responseMimeType: 'application/json',
+      temperature,
+    };
+    if (useVertex) {
+      config.responseSchema = toOpenApiSchema(rawSchema);
+    } else {
+      config.responseSchema = jsonSchema as any;
+    }
+
     const response = await ai.models.generateContent({
       model,
       contents: [{ role: 'user', parts: [{ text: prompt }] }],
-      config: {
-        systemInstruction,
-        responseMimeType: 'application/json',
-        responseSchema: zodToJsonSchema(schema as any) as any,
-        temperature,
-      },
+      config,
     });
 
     const text = response.candidates?.[0]?.content?.parts?.[0]?.text;
     if (!text) {
       throw new Error("No response candidates returned from Gemini");
     }
+
+    console.log("[Gemini] Raw response text:", text);
 
     const parsed = JSON.parse(text);
     return schema.parse(parsed);
