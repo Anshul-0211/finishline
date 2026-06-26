@@ -85,7 +85,13 @@ export default function AddCommitmentPage() {
 
     recognition.onerror = (err: any) => {
       console.error(err);
-      setError("Voice recording failed: " + err.error);
+      if (err.error === "network") {
+        setError("Voice recording failed: Network connection issue with the browser's speech recognition service. Please check your internet connection or try typing the text directly.");
+      } else if (err.error === "not-allowed") {
+        setError("Voice recording failed: Microphone permission denied. Please enable microphone access in your browser settings.");
+      } else {
+        setError("Voice recording failed: " + err.error);
+      }
       setIsRecording(false);
     };
 
