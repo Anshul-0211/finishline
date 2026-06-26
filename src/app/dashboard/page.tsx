@@ -9,6 +9,7 @@ import StressGaugeCard from "@/components/dashboard/StressGaugeCard";
 import PriorityStack from "@/components/dashboard/PriorityStack";
 import AgentStatusBar from "@/components/dashboard/AgentStatusBar";
 import CollisionBanner from "@/components/dashboard/CollisionBanner";
+import LifeBalanceRadar from "@/components/dashboard/LifeBalanceRadar";
 
 export default function Dashboard() {
   const { user } = useUserStore();
@@ -115,6 +116,7 @@ export default function Dashboard() {
         <div className="xl:col-span-2 space-y-6">
           <CollisionBanner alerts={alerts} onDismiss={handleDismissAlert} />
           <PriorityStack commitments={commitments} />
+          {user?.uid && <LifeBalanceRadar userId={user.uid} commitments={commitments} />}
         </div>
       </div>
     </div>

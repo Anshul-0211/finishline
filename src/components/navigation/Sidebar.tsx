@@ -16,6 +16,8 @@ import {
   User as UserIcon,
 } from "lucide-react";
 
+import ThemeToggle from "@/components/ui/ThemeToggle";
+
 export default function Sidebar() {
   const pathname = usePathname();
   const router = useRouter();
@@ -68,6 +70,7 @@ export default function Sidebar() {
     { href: "/dashboard/add", label: "Add New", icon: PlusCircle, isCta: true },
     { href: "/dashboard/gmail", label: "Gmail Scan", icon: Mail },
     { href: "/dashboard/weekly-planning", label: "Weekly Planning", icon: Calendar },
+    { href: "/dashboard/calendar", label: "Calendar", icon: Calendar },
     { href: "/dashboard/reflection", label: "Reflection", icon: BookOpen },
   ];
 
@@ -137,13 +140,16 @@ export default function Sidebar() {
               <p className="text-sm font-semibold truncate leading-tight">{user.displayName}</p>
               <p className="text-xs text-[#8B949E] truncate">{user.email}</p>
             </div>
-            <button
-              onClick={handleLogout}
-              className="text-[#8B949E] hover:text-red-400 p-1.5 rounded-lg hover:bg-[#21262D] transition cursor-pointer"
-              title="Sign Out"
-            >
-              <LogOut className="w-4 h-4" />
-            </button>
+            <div className="flex items-center gap-1.5 shrink-0">
+              <ThemeToggle />
+              <button
+                onClick={handleLogout}
+                className="text-[#8B949E] hover:text-red-400 p-1.5 rounded-lg hover:bg-[#21262D] transition cursor-pointer"
+                title="Sign Out"
+              >
+                <LogOut className="w-4 h-4" />
+              </button>
+            </div>
           </div>
         )}
 

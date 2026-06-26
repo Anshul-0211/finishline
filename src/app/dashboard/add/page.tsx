@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useUserStore } from "@/lib/stores/useUserStore";
 import { storage } from "@/lib/firebase/client";
@@ -26,6 +26,16 @@ export default function AddCommitmentPage() {
   const [loading, setLoading] = useState(false);
   const [extractedData, setExtractedData] = useState<any | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const params = new URLSearchParams(window.location.search);
+      const tab = params.get("tab");
+      if (tab === "text" || tab === "file" || tab === "gmail") {
+        setActiveTab(tab);
+      }
+    }
+  }, []);
 
   // Tab 1: Text / Voice State
   const [inputText, setInputText] = useState("");
