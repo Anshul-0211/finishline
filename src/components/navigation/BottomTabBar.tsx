@@ -22,7 +22,7 @@ export default function BottomTabBar() {
   ];
 
   return (
-    <div className="fixed bottom-0 left-0 right-0 h-16 bg-[#161B22] border-t border-[#30363D] flex items-center justify-around px-4 z-40 select-none">
+    <div className="fixed bottom-0 left-0 right-0 h-16 bg-card border-t border-border flex items-center justify-around px-4 z-40 select-none">
       {tabs.map((tab) => {
         const Icon = tab.icon;
         const isActive = pathname === tab.href;
@@ -32,7 +32,7 @@ export default function BottomTabBar() {
             <Link
               key={tab.href}
               href={tab.href}
-              className="flex items-center justify-center -translate-y-4 w-12 h-12 rounded-full bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-lg border-4 border-[#0D1117] transition transform duration-200 active:scale-95"
+              className="flex items-center justify-center -translate-y-4 w-12 h-12 rounded-full bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-lg border-4 border-background transition transform duration-200 active:scale-95"
             >
               <Icon className="w-6 h-6" />
             </Link>

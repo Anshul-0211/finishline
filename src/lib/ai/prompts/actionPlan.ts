@@ -1,6 +1,14 @@
 import { CommitmentDraft, CoreLifeContext } from "../types";
 
 export function buildActionPlanPrompt(commitment: CommitmentDraft, context: CoreLifeContext): string {
+  let deadlineStr = "None";
+  if (commitment.deadline) {
+    const d = typeof (commitment.deadline as any).toDate === "function"
+      ? (commitment.deadline as any).toDate()
+      : new Date(commitment.deadline);
+    deadlineStr = d.toLocaleString();
+  }
+
   return `Create a customized, step-by-step action plan to complete the following commitment:
   
 Commitment Details:
@@ -8,7 +16,7 @@ Commitment Details:
 - Description: ${commitment.description}
 - Domain: ${commitment.domain}
 - Estimated Effort: ${commitment.effortEstimateHours} hours
-- Deadline: ${commitment.deadline || "None"}
+- Deadline: ${deadlineStr}
 - Difficulty: ${commitment.difficulty}
 - Cognitive Load: ${commitment.estimatedCognitiveLoad}
 

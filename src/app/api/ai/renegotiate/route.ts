@@ -87,6 +87,12 @@ export async function POST(req: NextRequest) {
 
     const updatedMessages = [...(renegData?.messages || []), userMsg];
 
+    // Write user message immediately so onSnapshot updates the UI without waiting for Gemini
+    await renegRef.update({
+      messages: updatedMessages,
+      updatedAt: now,
+    });
+
     // 5. Assemble core life context
     const context = await ensureFreshContext(userId, "core");
 

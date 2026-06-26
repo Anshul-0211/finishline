@@ -166,21 +166,15 @@ export default function AddCommitmentPage() {
       const storageRef = ref(storage, `uploads/${user.uid}/${timestamp}_${file.name}`);
       const uploadTask = uploadBytesResumable(storageRef, file);
 
-      await new Promise<void>((resolve, reject) => {
-        uploadTask.on(
-          "state_changed",
-          (snapshot) => {
-            const progress = (snapshot.bytesTransferred / snapshot.totalBytes) * 100;
-            setUploadProgress(Math.round(progress));
-          },
-          (err) => {
-            reject(err);
-          },
-          async () => {
-            resolve();
-          }
-        );
-      });
+      uploadTask.on(
+        "state_changed",
+        (snapshot) => {
+          const progress = (snapshot.bytesTransferred / snapshot.totalBytes) * 100;
+          setUploadProgress(Math.round(progress));
+        }
+      );
+
+      await uploadTask;
 
       const fileUrl = await getDownloadURL(uploadTask.snapshot.ref);
 

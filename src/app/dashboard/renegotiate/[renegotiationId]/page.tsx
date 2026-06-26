@@ -31,17 +31,19 @@ export default function RenegotiationPage() {
   useEffect(() => {
     if (!user?.uid || !renegotiationId) return;
 
+    let unsubCommit: (() => void) | null = null;
+
     const renegRef = doc(db, "users", user.uid, "renegotiations", renegotiationId);
-    const unsubscribe = onSnapshot(renegRef, async (snap) => {
+    const unsubscribe = onSnapshot(renegRef, (snap) => {
       if (snap.exists()) {
         const data = snap.data();
         setRenegDoc({ id: snap.id, ...data });
         setMessages(data.messages || []);
 
-        // Fetch commitment title
-        if (data.commitmentId && !commitment) {
+        // Fetch commitment title (only subscribe once)
+        if (data.commitmentId && !unsubCommit) {
           const commitRef = doc(db, "users", user.uid, "commitments", data.commitmentId);
-          const commitSnap = await onSnapshot(commitRef, (cSnap) => {
+          unsubCommit = onSnapshot(commitRef, (cSnap) => {
             if (cSnap.exists()) {
               setCommitment({ id: cSnap.id, ...cSnap.data() });
             }
@@ -51,7 +53,10 @@ export default function RenegotiationPage() {
       setPageLoading(false);
     });
 
-    return () => unsubscribe();
+    return () => {
+      unsubscribe();
+      if (unsubCommit) unsubCommit();
+    };
   }, [user, renegotiationId]);
 
   // Scroll to bottom on new messages

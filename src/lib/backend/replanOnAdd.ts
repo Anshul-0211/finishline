@@ -86,21 +86,31 @@ export async function replanOnAdd(userId: string, newCommitmentId: string): Prom
   let calendarSyncPending = false;
   let calendarSyncError = "";
 
+  const deadlineMs = newCommitment.deadline ? getMillis(newCommitment.deadline) : Infinity;
+
   for (const step of blocksToSchedule) {
     let startStr = "";
     let endStr = "";
 
     const suggestedTime = step.suggestedTimeSlot;
-    if (suggestedTime && new Date(suggestedTime).getTime() > Date.now()) {
+    if (
+      suggestedTime &&
+      new Date(suggestedTime).getTime() > Date.now() &&
+      new Date(suggestedTime).getTime() + step.estimatedMinutes * 60 * 1000 <= deadlineMs
+    ) {
       startStr = new Date(suggestedTime).toISOString();
       endStr = new Date(new Date(suggestedTime).getTime() + step.estimatedMinutes * 60 * 1000).toISOString();
     } else {
-      // Find a slot in freeSlots
+      // Find a slot in freeSlots that fits the duration and ends before the deadline
       const slotIndex = freeSlots.findIndex((slot) => {
         const slotStart = new Date(slot.start).getTime();
         const slotEnd = new Date(slot.end).getTime();
         const duration = (slotEnd - slotStart) / (60 * 1000);
-        return slotStart > Date.now() && duration >= step.estimatedMinutes;
+        return (
+          slotStart > Date.now() &&
+          duration >= step.estimatedMinutes &&
+          slotStart + step.estimatedMinutes * 60 * 1000 <= deadlineMs
+        );
       });
 
       if (slotIndex !== -1) {

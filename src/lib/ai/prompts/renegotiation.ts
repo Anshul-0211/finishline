@@ -12,13 +12,21 @@ export function buildRenegotiationPrompt(
   history: Message[],
   userMessage: string
 ): string {
+  let deadlineStr = "None";
+  if (failing.deadline) {
+    const d = typeof (failing.deadline as any).toDate === "function"
+      ? (failing.deadline as any).toDate()
+      : new Date(failing.deadline);
+    deadlineStr = d.toLocaleString();
+  }
+
   return `You are FinishLine's empathetic AI commitment coach. A user has failed a check-in or is running late.
 Your job is to understand why, then generate a concrete, realistic new schedule that fits within their ACTUAL available capacity across all commitments.
 
 Failing Commitment Details:
 - Title: ${failing.title}
 - Description: ${failing.description}
-- Current Deadline: ${failing.deadline}
+- Current Deadline: ${deadlineStr}
 - Effort Estimate: ${failing.effortEstimateHours} hours
 - Completion Percentage: ${failing.completionPercentage}%
 - Remaining Effort Hours: ${failing.adjustedEffortHours - failing.completedEffortHours} hours

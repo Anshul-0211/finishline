@@ -75,7 +75,7 @@ export default function Sidebar() {
   ];
 
   return (
-    <aside className="w-64 bg-[#161B22] border-r border-[#30363D] flex flex-col h-screen text-white select-none sticky top-0">
+    <aside className="w-64 bg-card border-r border-border flex flex-col h-screen text-foreground select-none sticky top-0">
       {/* Brand Header */}
       <div className="p-6 border-b border-[#30363D] flex items-center gap-2">
         <span className="text-2xl">🏁</span>
@@ -124,7 +124,7 @@ export default function Sidebar() {
       <div className="p-4 border-t border-[#30363D] space-y-4">
         {/* User Card */}
         {user && (
-          <div className="flex items-center gap-3 bg-[#0D1117] p-3 rounded-xl border border-[#30363D]">
+          <div className="flex items-center gap-3 bg-background p-3 rounded-xl border border-border">
             {user.photoURL ? (
               <img
                 src={user.photoURL}
