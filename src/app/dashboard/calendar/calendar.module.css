@@ -1,0 +1,81 @@
+/* Custom calendar module styles to override react-big-calendar defaults */
+
+.calendarContainer :global(.rbc-calendar) {
+  font-family: var(--font-sans), system-ui, sans-serif;
+  background-color: #161B22;
+  border: 1px solid #30363D;
+  border-radius: 16px;
+  padding: 12px;
+  color: #E6EDF3;
+}
+
+.calendarContainer :global(.rbc-header) {
+  font-weight: 700;
+  font-size: 13px;
+  color: #8B949E;
+  border-bottom: 1px solid #30363D !important;
+  padding: 10px 0;
+  background-color: #0D1117;
+}
+
+.calendarContainer :global(.rbc-time-header-content) {
+  border-left: 1px solid #30363D !important;
+}
+
+.calendarContainer :global(.rbc-time-content) {
+  border-top: 1px solid #30363D !important;
+}
+
+.calendarContainer :global(.rbc-time-view) {
+  border: 1px solid #30363D !important;
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.calendarContainer :global(.rbc-timeslot-group) {
+  border-bottom: 1px solid #30363D !important;
+  min-height: 50px;
+}
+
+.calendarContainer :global(.rbc-day-slot .rbc-time-slot) {
+  border-top: 1px solid #21262D !important;
+}
+
+.calendarContainer :global(.rbc-day-bg) {
+  border-left: 1px solid #30363D !important;
+}
+
+.calendarContainer :global(.rbc-today) {
+  background-color: rgba(56, 139, 253, 0.05) !important;
+}
+
+.calendarContainer :global(.rbc-time-gutter .rbc-timeslot-group) {
+  border-bottom: 1px solid #30363D !important;
+}
+
+.calendarContainer :global(.rbc-label) {
+  color: #8B949E;
+  font-size: 11px;
+  padding: 0 4px;
+}
+
+/* Event overrides */
+.calendarContainer :global(.rbc-event) {
+  background: none !important;
+  border: none !important;
+  padding: 0 !important;
+  border-radius: 0 !important;
+}
+
+.calendarContainer :global(.rbc-event-content) {
+  padding: 0 !important;
+  font-size: 11px;
+  height: 100%;
+}
+
+.calendarContainer :global(.rbc-allday-cell) {
+  display: none !important; /* Hide all-day events row for clean hourly week grid */
+}
+.calendarContainer :global(.rbc-time-header-cell) {
+  min-height: 0px !important;
+}

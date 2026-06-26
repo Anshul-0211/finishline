@@ -123,6 +123,7 @@ export async function callGemini<T>(params: {
   schema: z.ZodSchema<T>;
   endpointType: EndpointType;
   model?: string;
+  inlineData?: { mimeType: string; data: string };
 }): Promise<T> {
   const {
     systemInstruction,
@@ -130,6 +131,7 @@ export async function callGemini<T>(params: {
     schema,
     endpointType,
     model = 'gemini-2.5-flash',
+    inlineData,
   } = params;
 
   const temperature = TEMPERATURE_MAP[endpointType];
@@ -163,9 +165,14 @@ For example, if the schema lists "reply" as a property/key, your output JSON mus
       config.responseSchema = jsonSchema as any;
     }
 
+    const parts: any[] = [{ text: prompt }];
+    if (inlineData) {
+      parts.push({ inlineData });
+    }
+
     const response = await ai.models.generateContent({
       model,
-      contents: [{ role: 'user', parts: [{ text: prompt }] }],
+      contents: [{ role: 'user', parts }],
       config,
     });
 
