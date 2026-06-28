@@ -1,6 +1,11 @@
 import { adminDb } from "@/lib/firebase/admin";
-import { User } from "@/lib/types";
-import { CoreLifeContext, ExtendedLifeContext, TimeSlot } from "./types";
+import { User, Commitment, Renegotiation } from "@/lib/types";
+import { CoreLifeContext, ExtendedLifeContext } from "../types/lifeContext";
+import { TimeSlot } from "./types";
+import { computeDomainBalance } from "../utils/domain";
+import { computeCompletionRate, computeMostProductiveDomain, computeCommonFailureReason } from "../utils/stats";
+
+export type { CoreLifeContext, ExtendedLifeContext };
 
 async function getUser(userId: string): Promise<User> {
   const snap = await adminDb.collection("users").doc(userId).get();
@@ -10,44 +15,139 @@ async function getUser(userId: string): Promise<User> {
   return snap.data() as User;
 }
 
-async function getActiveCommitments(userId: string): Promise<any[]> {
+async function getActiveCommitments(userId: string): Promise<Commitment[]> {
   const snap = await adminDb.collection("users").doc(userId).collection("commitments")
     .where("status", "in", ["active", "renegotiating"])
     .get();
-  return snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+  return snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Commitment));
 }
 
-export async function getCalendarFreeSlots(userId: string, options: { days: number }): Promise<TimeSlot[] & { _fetchedAt?: string }> {
-  // Mock calendar fetch for local scaffold development
-  const slots: TimeSlot[] = [];
+export async function getCalendarFreeSlots(
+  userId: string,
+  options: { days: number; minSlotMinutes?: number }
+): Promise<TimeSlot[] & { _fetchedAt?: string }> {
   const now = new Date();
-  for (let i = 0; i < options.days; i++) {
-    const day = new Date(now);
-    day.setDate(now.getDate() + i);
-    const start = new Date(day);
-    start.setHours(14, 0, 0, 0);
-    const end = new Date(day);
-    end.setHours(17, 0, 0, 0);
-    slots.push({
-      start: start.toISOString(),
-      end: end.toISOString(),
-    });
-  }
-  const result = slots as any;
-  result._fetchedAt = now.toISOString();
-  return result;
-}
+  const { days, minSlotMinutes = 30 } = options;
 
-function computeDomainBalance(commitments: any[]): Record<string, number> {
-  const balance: Record<string, number> = {
-    academic: 0, work: 0, personal: 0, health: 0, social: 0, family: 0
-  };
-  commitments.forEach(c => {
-    if (c.domain in balance) {
-      balance[c.domain]++;
+  // Helper: convert a DateInput to milliseconds
+  function toMs(val: string | number | Date): number {
+    if (val instanceof Date) return val.getTime();
+    if (typeof val === "number") return val;
+    return new Date(val).getTime();
+  }
+
+  // Default fallback: 14:00–17:00 each day (used if Calendar is not connected)
+  function mockSlots(): TimeSlot[] & { _fetchedAt?: string } {
+    const slots: TimeSlot[] = [];
+    for (let i = 0; i < days; i++) {
+      const day = new Date(now);
+      day.setDate(now.getDate() + i);
+      const start = new Date(day);
+      start.setHours(14, 0, 0, 0);
+      const end = new Date(day);
+      end.setHours(17, 0, 0, 0);
+      slots.push({ start: start.toISOString(), end: end.toISOString() });
     }
-  });
-  return balance;
+    const result = slots as TimeSlot[] & { _fetchedAt?: string };
+    result._fetchedAt = now.toISOString();
+    return result;
+  }
+
+  try {
+    // 1. Load user preferences for working hours
+    const { getCalendarClient } = await import("@/lib/services/calendar");
+    const { adminDb } = await import("@/lib/firebase/admin");
+    const userDoc = await adminDb.collection("users").doc(userId).get();
+    if (!userDoc.exists) return mockSlots();
+
+    const user = userDoc.data() as import("@/lib/types").User;
+    const workStart: number = user.preferences?.workingHours?.start ?? 9;
+    const workEnd: number = user.preferences?.workingHours?.end ?? 18;
+
+    // 2. Query Google Calendar freeBusy for the date range
+    const rangeStart = new Date(now);
+    rangeStart.setHours(0, 0, 0, 0);
+    const rangeEnd = new Date(now);
+    rangeEnd.setDate(now.getDate() + days);
+    rangeEnd.setHours(23, 59, 59, 999);
+
+    const calendar = await getCalendarClient(userId);
+    const freeBusyRes = await calendar.freebusy.query({
+      requestBody: {
+        timeMin: rangeStart.toISOString(),
+        timeMax: rangeEnd.toISOString(),
+        items: [{ id: "primary" }],
+      },
+    });
+    const rawBusy = freeBusyRes.data.calendars?.primary?.busy ?? [];
+    const busyPeriods: TimeSlot[] = rawBusy.map((b) => ({
+      start: b.start ?? "",
+      end: b.end ?? "",
+    }));
+
+    // 3. Subtract busy periods from working hours to compute free slots
+    const freeSlots: TimeSlot[] = [];
+
+    for (let i = 0; i < days; i++) {
+      const day = new Date(now);
+      day.setDate(now.getDate() + i);
+
+      const dayStart = new Date(day);
+      dayStart.setHours(workStart, 0, 0, 0);
+      const dayEnd = new Date(day);
+      dayEnd.setHours(workEnd, 0, 0, 0);
+
+      // Today: start from current time, rounded up to next 30-min boundary
+      let cursor =
+        i === 0 && now > dayStart ? new Date(now) : new Date(dayStart);
+      if (i === 0 && now > dayStart) {
+        const mins = cursor.getMinutes();
+        cursor.setMinutes(Math.ceil(mins / 30) * 30, 0, 0);
+      }
+
+      // Busy blocks that overlap this working window, sorted by start
+      const dayBusy = busyPeriods
+        .map((b) => ({ start: new Date(b.start), end: new Date(b.end) }))
+        .filter((b) => b.end > dayStart && b.start < dayEnd)
+        .sort((a, b) => a.start.getTime() - b.start.getTime());
+
+      for (const busy of dayBusy) {
+        const bStart = busy.start < dayStart ? dayStart : busy.start;
+        const bEnd = busy.end > dayEnd ? dayEnd : busy.end;
+        if (cursor < bStart) {
+          const durMs = toMs(bStart) - toMs(cursor);
+          if (durMs >= minSlotMinutes * 60_000) {
+            freeSlots.push({
+              start: cursor.toISOString(),
+              end: bStart.toISOString(),
+            });
+          }
+        }
+        if (bEnd > cursor) cursor = new Date(bEnd);
+      }
+
+      // Remaining time after last busy block
+      if (cursor < dayEnd) {
+        const durMs = toMs(dayEnd) - toMs(cursor);
+        if (durMs >= minSlotMinutes * 60_000) {
+          freeSlots.push({
+            start: cursor.toISOString(),
+            end: dayEnd.toISOString(),
+          });
+        }
+      }
+    }
+
+    const result = freeSlots as TimeSlot[] & { _fetchedAt?: string };
+    result._fetchedAt = now.toISOString();
+    return result;
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.warn(
+      `[context] getCalendarFreeSlots failed (${msg}) — falling back to mock slots`
+    );
+    return mockSlots();
+  }
 }
 
 export async function assembleCoreContext(userId: string): Promise<CoreLifeContext> {
@@ -62,7 +162,7 @@ export async function assembleCoreContext(userId: string): Promise<CoreLifeConte
   return {
     userId,
     currentDateTime: now,
-    timezone: user.preferences?.theme || "UTC", // theme or timezone field if available, fallback to UTC
+    timezone: (user.preferences as unknown as Record<string, unknown>)?.timezone as string || "UTC",
     availableSlotsThisWeek: calendarSlots,
     preferredWorkHours: user.learningCoefficients?.preferredWorkHours || [9, 10, 14, 15, 20, 21],
     underestimationFactor: user.learningCoefficients?.underestimationFactor || 1.0,
@@ -77,7 +177,7 @@ export async function assembleCoreContext(userId: string): Promise<CoreLifeConte
       riskTrend: c.riskTrend || 'stable',
       completionPercentage: c.completionPercentage || 0,
       remainingEffortHours: (c.adjustedEffortHours || c.effortEstimateHours || 0) * (1 - (c.completionPercentage || 0) / 100),
-      scheduledBlocks: (c.scheduledBlocks || []).map((b: any) => ({
+      scheduledBlocks: (c.scheduledBlocks || []).map((b: Commitment['scheduledBlocks'][number]) => ({
         start: b.start?.toDate?.() ? b.start.toDate().toISOString() : b.start,
         end: b.end?.toDate?.() ? b.end.toDate().toISOString() : b.end,
         calendarEventId: b.calendarEventId,
@@ -91,7 +191,9 @@ export async function assembleCoreContext(userId: string): Promise<CoreLifeConte
       commitmentsSyncedAt: now,
       stressScoreComputedAt: user.stats?.stressScoreComputedAt?.toDate?.() 
         ? user.stats.stressScoreComputedAt.toDate().toISOString() 
-        : now,
+        : (user.stats?.stressScoreComputedAt instanceof Date 
+          ? user.stats.stressScoreComputedAt.toISOString() 
+          : now),
       contextAssembledAt: now,
     },
   };
@@ -105,13 +207,13 @@ async function getPastWeekData(userId: string) {
   const commitmentsSnap = await adminDb.collection("users").doc(userId).collection("commitments")
     .get();
 
-  const completedCommitments: any[] = [];
-  const missedCommitments: any[] = [];
+  const completedCommitments: { id: string; title: string; domain: string; actualEffortHours: number }[] = [];
+  const missedCommitments: { id: string; title: string; reason: string | null }[] = [];
   let actualEffortHours = 0;
   let estimatedEffortHours = 0;
 
   commitmentsSnap.docs.forEach(doc => {
-    const c = doc.data();
+    const c = doc.data() as Commitment;
     if (c.status === "completed") {
       completedCommitments.push({
         id: doc.id,
@@ -125,7 +227,7 @@ async function getPastWeekData(userId: string) {
       missedCommitments.push({
         id: doc.id,
         title: c.title,
-        reason: c.failureReason || null,
+        reason: (c as unknown as Record<string, unknown>).failureReason as string | null || null,
       });
       estimatedEffortHours += c.effortEstimateHours || 0;
     }
@@ -147,7 +249,7 @@ async function getLongTermGoals(userId: string) {
     .where("status", "==", "active")
     .get();
   return snap.docs.map(doc => {
-    const c = doc.data();
+    const c = doc.data() as Commitment;
     return {
       id: doc.id,
       title: c.title,
@@ -167,7 +269,7 @@ async function getRecentRenegotiations(userId: string, options: { weeks: number 
     .get();
     
   return snap.docs.map(doc => {
-    const r = doc.data();
+    const r = doc.data() as Renegotiation;
     return {
       commitmentTitle: r.userMessage || "Commitment",
       failureReason: r.failureReason || "",
@@ -187,12 +289,10 @@ export async function assembleExtendedContext(userId: string): Promise<ExtendedL
 
   return {
     ...core,
-    recentCompletionRate: user.stats?.totalCommitmentsCreated 
-      ? (user.stats.totalCompleted / user.stats.totalCommitmentsCreated) * 100 
-      : 100,
+    recentCompletionRate: computeCompletionRate(user, { weeks: 4 }),
     avgUnderestimation: user.learningCoefficients?.underestimationFactor || 1.0,
-    mostProductiveDomain: "work",
-    commonFailureReason: renegotiations.length > 0 ? renegotiations[0].failureReason : "none",
+    mostProductiveDomain: computeMostProductiveDomain(user),
+    commonFailureReason: computeCommonFailureReason(renegotiations),
     pastWeek,
     longTermGoals,
     recentRenegotiations: renegotiations,

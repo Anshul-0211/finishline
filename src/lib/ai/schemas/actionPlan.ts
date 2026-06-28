@@ -17,3 +17,5 @@ export const actionPlanResponseSchema = z.object({
   recommendedDaysSpread: z.number().nonnegative(),
   aiMeta: aiMetaSchema,
 });
+
+export const ActionPlanSchema = actionPlanResponseSchema;

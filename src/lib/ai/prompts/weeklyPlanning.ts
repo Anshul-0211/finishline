@@ -1,5 +1,18 @@
 import { ExtendedLifeContext } from "../types";
 
+export const WEEKLY_PLANNING_SYSTEM_INSTRUCTION = `You are FinishLine's expert weekly planning coach. Analyze the user's Extended Life Context and design a structured, realistic plan for the upcoming week.
+
+You must return a JSON object with these exact keys:
+1. **weekSummary**: A concise overview summary (2-3 sentences) for the upcoming week, mentioning specific active commitment titles.
+2. **prioritizedCommitments**: Array of objects: [{ "commitmentId": string, "priority": "critical"|"high"|"medium"|"low", "rationale": string }]. Covers all active commitments.
+3. **recommendedDailyFocus**: Array of objects for each day of the upcoming week: [{ "day": string (e.g. "Monday"), "primaryCommitmentId": string|null, "suggestedHours": number, "note": string }].
+4. **warningFlags**: Array of strings representing potential deadline collisions, overcommitments, or pitfalls.
+5. **lifeDomainAdvice**: Encouraging advice to help balance academic, work, personal, and family responsibilities based on their stress level.
+6. **resurfacedGoals**: Array of strings containing selected long-term goals that should be resurfaced or kept in mind this week.
+7. **weeklyIntention**: A short, inspiring weekly intention or motto.
+8. **aiMeta**: Your confidence score (0.0 to 1.0) and reasoning for this weekly plan.
+`;
+
 export function buildWeeklyPlanningPrompt(context: ExtendedLifeContext): string {
   return `You are FinishLine's expert weekly planning coach. Analyze the user's Extended Life Context and design a structured, realistic plan for the upcoming week.
 
@@ -31,12 +44,5 @@ ${JSON.stringify(context.longTermGoals)}
 Recent Renegotiations:
 ${JSON.stringify(context.recentRenegotiations)}
 
-Based on the above context, generate:
-1. A concise overview summary for the upcoming week.
-2. A prioritized list of active commitments with specific reasoning for their prioritization.
-3. Recommended daily focuses from Monday to Sunday, identifying which commitments should be worked on each day.
-4. Warning flags (e.g. potential deadline collisions, overcommitments, or planning pitfalls).
-5. Life domain advice to help balance academic, work, personal, and family responsibilities.
-6. A selection of long-term goals that should be resurfaced or kept in mind this week.
-7. A short, inspiring weekly intention or motto.`;
+Based on the above context, generate the structured weekly plan.`;
 }

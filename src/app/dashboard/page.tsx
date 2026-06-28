@@ -1,93 +1,85 @@
 "use client";
 
-export const dynamic = "force-dynamic";
-
-import { useUserStore } from "@/lib/stores/useUserStore";
+import React, { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { useEffect } from "react";
+import { onAuthStateChanged } from "firebase/auth";
+import { Plus } from "lucide-react";
+import { auth } from "@/lib/firebase/client";
+import { useUserStore } from "@/lib/stores/useUserStore";
+import { useCommitmentsStore } from "@/lib/stores/useCommitmentsStore";
+import { NavShell } from "@/components/nav-shell";
+import { SkeletonRow } from "@/components/ui/skeleton-row";
 
-export default function Dashboard() {
-  const { user, logout, loading } = useUserStore();
+export default function DashboardPage() {
   const router = useRouter();
+  const { user, setUser, subscribeToUserProfile, userProfile } = useUserStore();
+  const { commitments, loading: commitmentsLoading, subscribeToCommitments } = useCommitmentsStore();
+  const [authChecked, setAuthChecked] = useState(false);
 
   useEffect(() => {
-    // Standard safety check
-    const hasSessionCookie = document.cookie.split(";").some((item) => item.trim().startsWith("session="));
-    if (!hasSessionCookie && !user) {
-      router.push("/");
-    }
-  }, [user, router]);
+    let unsubProfile: (() => void) | null = null;
+    let unsubCommitments: (() => void) | null = null;
 
-  const handleLogout = async () => {
-    try {
-      await logout();
-      router.push("/");
-    } catch (err) {
-      console.error("Logout failed:", err);
-    }
-  };
+    const unsubscribeAuth = onAuthStateChanged(auth, (firebaseUser) => {
+      if (!firebaseUser) {
+        setUser(null);
+        setAuthChecked(true);
+        router.push("/");
+      } else {
+        setUser(firebaseUser);
+        setAuthChecked(true);
+        
+        // Open real-time Firestore subscriptions
+        unsubProfile = subscribeToUserProfile(firebaseUser.uid);
+        unsubCommitments = subscribeToCommitments(firebaseUser.uid);
+      }
+    });
+
+    return () => {
+      unsubscribeAuth();
+      if (unsubProfile) unsubProfile();
+      if (unsubCommitments) unsubCommitments();
+    };
+  }, [router, setUser, subscribeToUserProfile, subscribeToCommitments]);
+
+  const isLoading = !authChecked || commitmentsLoading;
+  const displayName = userProfile?.displayName || user?.displayName || "User";
 
   return (
-    <div className="min-h-screen bg-[#F8FAFC] dark:bg-[#0D1117] text-[#1A202C] dark:text-[#E6EDF3] flex flex-col transition-colors duration-300">
-      <nav className="border-b border-[#E2E8F0] dark:border-[#30363D] bg-white dark:bg-[#161B22] py-4 px-6 flex justify-between items-center">
-        <div className="flex items-center gap-2">
-          <span className="text-xl">🏁</span>
-          <span className="font-bold text-lg">FinishLine</span>
-        </div>
-        <div className="flex items-center gap-4">
-          {user && (
-            <div className="flex items-center gap-2">
-              {user.photoURL && (
-                <img
-                  src={user.photoURL}
-                  alt={user.displayName}
-                  className="w-8 h-8 rounded-full border border-[#E2E8F0] dark:border-[#30363D]"
-                />
-              )}
-              <span className="text-sm font-medium hidden sm:inline">
-                {user.displayName}
-              </span>
-            </div>
-          )}
-          <button
-            onClick={handleLogout}
-            disabled={loading}
-            className="text-xs bg-red-50 hover:bg-red-100 dark:bg-red-950/20 dark:hover:bg-red-950/40 text-red-600 dark:text-red-400 font-semibold py-2 px-3 rounded-lg border border-red-200 dark:border-red-900/50 transition duration-200 cursor-pointer"
-          >
-            Logout
-          </button>
-        </div>
-      </nav>
-      <main className="flex-1 p-8 max-w-4xl mx-auto w-full space-y-6">
-        <header className="space-y-2">
-          <h1 className="text-3xl font-extrabold tracking-tight">Dashboard</h1>
-          <p className="text-sm text-[#4A5568] dark:text-[#8B949E]">
-            Welcome to FinishLine! Project Foundation is successfully configured.
-          </p>
-        </header>
-
-        <section className="bg-white dark:bg-[#161B22] border border-[#E2E8F0] dark:border-[#30363D] rounded-2xl p-6 shadow-sm space-y-4">
-          <h2 className="text-lg font-bold">Foundation Status Checks</h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
-            <div className="flex items-center gap-2.5 p-3 rounded-xl bg-green-50 dark:bg-green-950/10 border border-green-200 dark:border-green-900/30 text-green-800 dark:text-green-300">
-              <span className="text-base">✓</span>
-              <span>Next.js App Router Scaffold</span>
-            </div>
-            <div className="flex items-center gap-2.5 p-3 rounded-xl bg-green-50 dark:bg-green-950/10 border border-green-200 dark:border-green-900/30 text-green-800 dark:text-green-300">
-              <span className="text-base">✓</span>
-              <span>Firebase Auth & Store Integrated</span>
-            </div>
-            <div className="flex items-center gap-2.5 p-3 rounded-xl bg-green-50 dark:bg-green-950/10 border border-green-200 dark:border-green-900/30 text-green-800 dark:text-green-300">
-              <span className="text-base">✓</span>
-              <span>Token Encryption Layer Deployed</span>
-            </div>
-            <div className="flex items-center gap-2.5 p-3 rounded-xl bg-green-50 dark:bg-green-950/10 border border-green-200 dark:border-green-900/30 text-green-800 dark:text-green-300">
-              <span className="text-base">✓</span>
-              <span>Zustand & Jotai Stores Configured</span>
-            </div>
+    <NavShell displayName={displayName}>
+      <div className="max-w-[720px] mx-auto px-6 py-8 flex flex-col gap-8">
+        
+        {isLoading ? (
+          <div className="space-y-6">
+            <SkeletonRow height={120} />
+            <SkeletonRow height={120} />
+            <SkeletonRow height={120} />
           </div>
-        </section>
-      </main>
-    </div>
+        ) : commitments.length === 0 ? (
+          <div className="flex flex-col items-center justify-center min-h-[300px] text-center gap-2">
+            <p className="text-on-surface-variant font-sans text-[16px]">
+              No active commitments yet ↘️
+            </p>
+          </div>
+        ) : (
+          <div className="space-y-8">
+            {/* STRESS_GAUGE_SECTION */}
+            {/* COLLISION_BANNER_SECTION */}
+            {/* GMAIL_SCAN_SECTION */}
+            {/* COMMITMENT_CARDS_SECTION */}
+            {/* LIFE_BALANCE_RADAR_SECTION */}
+          </div>
+        )}
+
+        {/* Floating Action Button (FAB) */}
+        <button
+          onClick={() => router.push("/add")}
+          className="fixed bottom-[96px] right-4 z-30 w-14 h-14 bg-primary text-on-primary rounded-full flex items-center justify-center shadow-card hover:bg-primary-container active:scale-95 transition-all duration-200 outline-none focus-visible:ring-2 focus-visible:ring-primary"
+          aria-label="Add new commitment"
+        >
+          <Plus className="w-6 h-6" />
+        </button>
+      </div>
+    </NavShell>
   );
 }

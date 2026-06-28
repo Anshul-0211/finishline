@@ -7,3 +7,5 @@ export const riskExplanationResponseSchema = z.object({
   suggestedAction: z.string(),
   aiMeta: aiMetaSchema,
 });
+
+export const RiskExplanationSchema = riskExplanationResponseSchema;

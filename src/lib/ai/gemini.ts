@@ -89,11 +89,14 @@ export async function callGroqFallback<T>(params: {
     delete (jsonSchema as any).$schema;
   }
 
-  const schemaInstruction = `\n\n[CRITICAL] You must return a JSON object that strictly adheres to the following JSON schema:
+  const isArraySchema = params.schema instanceof z.ZodArray || (params.schema as any)._def?.typeName === 'ZodArray';
+  const jsonType = isArraySchema ? 'JSON array' : 'JSON object';
+
+  const schemaInstruction = `\n\n[CRITICAL] You must return a ${jsonType} that strictly adheres to the following JSON schema:
 ${JSON.stringify(jsonSchema)}
 
-Ensure that your JSON object has EXACTLY the keys defined in the schema above.
-For example, if the schema lists "reply" as a property/key, your output JSON must have a key named "reply" (NOT "message" or "text"). Do not add any markdown blocks or outside text.`;
+Ensure that your ${jsonType} has EXACTLY the structure defined in the schema above.
+${isArraySchema ? 'Return a JSON array of objects.' : 'Ensure that your JSON object has EXACTLY the keys defined in the schema above.\nFor example, if the schema lists "reply" as a property/key, your output JSON must have a key named "reply" (NOT "message" or "text").'} Do not add any markdown blocks or outside text.`;
 
   const groq = new Groq({ apiKey });
   const response = await groq.chat.completions.create({
@@ -103,7 +106,7 @@ For example, if the schema lists "reply" as a property/key, your output JSON mus
       { role: "user", content: params.prompt },
     ],
     temperature: 0.1,
-    response_format: { type: "json_object" },
+    response_format: isArraySchema ? { type: "text" } : { type: "json_object" },
   });
 
   const text = response.choices[0]?.message?.content || "";
@@ -143,11 +146,14 @@ export async function callGemini<T>(params: {
     delete (jsonSchema as any).$schema;
   }
 
-  const schemaInstruction = `\n\n[CRITICAL] You must return a JSON object that strictly adheres to the following JSON schema:
+  const isArraySchema = schema instanceof z.ZodArray || (schema as any)._def?.typeName === 'ZodArray';
+  const jsonType = isArraySchema ? 'JSON array' : 'JSON object';
+
+  const schemaInstruction = `\n\n[CRITICAL] You must return a ${jsonType} that strictly adheres to the following JSON schema:
 ${JSON.stringify(jsonSchema)}
 
-Ensure that your JSON object has EXACTLY the keys defined in the schema above.
-For example, if the schema lists "reply" as a property/key, your output JSON must have a key named "reply" (NOT "message" or "text"). Do not add any markdown blocks or outside text.`;
+Ensure that your ${jsonType} has EXACTLY the structure defined in the schema above.
+${isArraySchema ? 'Return a JSON array of objects.' : 'Ensure that your JSON object has EXACTLY the keys defined in the schema above.\nFor example, if the schema lists "reply" as a property/key, your output JSON must have a key named "reply" (NOT "message" or "text").'} Do not add any markdown blocks or outside text.`;
 
   try {
     const useVertex = process.env.GOOGLE_GENAI_USE_VERTEXAI === 'true';

@@ -1,243 +1,220 @@
 "use client";
 
-export const dynamic = "force-dynamic";
-
-import { useUserStore } from "@/lib/stores/useUserStore";
+import React, { useState } from "react";
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { Flag, Loader2, Mail, Lock, AlertCircle } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
+import { useUserStore } from "@/lib/stores/useUserStore";
+import { PillButton } from "@/components/ui/pill-button";
+import { FADE_SLIDE } from "@/lib/motion";
 
-type AuthMode = "google" | "login" | "signup";
+const GoogleIcon = () => (
+  <svg className="w-5 h-5 mr-3 flex-shrink-0" viewBox="0 0 24 24">
+    <path
+      fill="#4285F4"
+      d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
+    />
+    <path
+      fill="#34A853"
+      d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
+    />
+    <path
+      fill="#FBBC05"
+      d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"
+    />
+    <path
+      fill="#EA4335"
+      d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"
+    />
+  </svg>
+);
 
 export default function Home() {
-  const { user, login, loginWithEmail, signUpWithEmail, loading, error, setError } = useUserStore();
-  const router = useRouter();
-  
-  const [authMode, setAuthMode] = useState<AuthMode>("google");
+  const { login, loginWithEmail, signUpWithEmail, loading, error, setError } = useUserStore();
+  const [showEmailForm, setShowEmailForm] = useState(false);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [displayName, setDisplayName] = useState("");
+  const [isSignUp, setIsSignUp] = useState(true);
 
-  useEffect(() => {
-    if (user) {
-      router.push("/dashboard");
-    }
-  }, [user, router]);
+  const router = useRouter();
 
-  const handleGoogleLogin = async () => {
+  const handleGoogleSignIn = async () => {
+    setError(null);
     try {
       await login();
       router.push("/dashboard");
-    } catch (err) {
-      console.error("Google Login failed:", err);
+    } catch (err: any) {
+      console.error("Google login failure:", err);
     }
   };
 
-  const handleEmailLogin = async (e: React.FormEvent) => {
+  const handleEmailAuth = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!email || !password) {
-      setError("Please fill in all fields.");
+    if (!email.trim() || !password.trim()) {
+      setError("Please fill in both email and password fields.");
       return;
     }
-    try {
-      await loginWithEmail(email, password);
-      router.push("/dashboard");
-    } catch (err) {
-      console.error("Email Login failed:", err);
-    }
-  };
-
-  const handleEmailSignUp = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!email || !password || !displayName) {
-      setError("Please fill in all fields.");
-      return;
-    }
-    try {
-      await signUpWithEmail(email, password, displayName);
-      router.push("/dashboard");
-    } catch (err) {
-      console.error("Email Sign Up failed:", err);
-    }
-  };
-
-  const switchMode = (mode: AuthMode) => {
     setError(null);
-    setAuthMode(mode);
+    try {
+      if (isSignUp) {
+        await signUpWithEmail(email, password, email.split("@")[0]);
+      } else {
+        await loginWithEmail(email, password);
+      }
+      router.push("/dashboard");
+    } catch (err: any) {
+      console.error("Email login failure:", err);
+    }
   };
 
   return (
-    <div className="flex min-h-screen flex-col items-center justify-center bg-[#F8FAFC] dark:bg-[#0D1117] text-[#1A202C] dark:text-[#E6EDF3] p-6 transition-colors duration-300">
-      <div className="max-w-md w-full bg-white dark:bg-[#161B22] border border-[#E2E8F0] dark:border-[#30363D] rounded-2xl shadow-xl p-8 space-y-6 flex flex-col items-center">
-        
-        {/* Header Title */}
-        <div className="text-center space-y-2">
-          <div className="h-16 w-16 bg-[#4A90D9]/10 rounded-full flex items-center justify-center mx-auto mb-2 border border-[#4A90D9]/20">
-            <span className="text-3xl">🏁</span>
+    <main className="min-h-screen relative flex flex-col items-center justify-center bg-background px-6 overflow-hidden transition-colors duration-200">
+      {/* Radial Glow bloom */}
+      <motion.div
+        animate={{ scale: [1, 1.04, 1] }}
+        transition={{ repeat: Infinity, duration: 4, ease: "easeInOut" }}
+        className="absolute w-[400px] h-[400px] bg-primary/6 dark:bg-primary/10 rounded-full blur-3xl -translate-x-1/2 -translate-y-1/2 top-1/2 left-1/2 pointer-events-none"
+      />
+
+      {/* Hero container */}
+      <motion.div
+        variants={FADE_SLIDE}
+        initial="hidden"
+        animate="visible"
+        className="w-full max-w-[360px] flex flex-col items-center text-center z-10 space-y-8"
+      >
+        {/* App Title & Header */}
+        <div className="flex flex-col items-center">
+          <div className="w-12 h-12 bg-primary rounded-full flex items-center justify-center shadow-md mb-4 text-on-primary">
+            <Flag className="w-6 h-6" />
           </div>
-          <h1 className="text-4xl font-extrabold tracking-tight">FinishLine</h1>
-          <p className="text-xs text-[#4A5568] dark:text-[#8B949E] max-w-xs">
-            Your AI Accountability Partner. Choose how to get started.
+          <h1 className="text-[32px] font-bold text-on-surface font-sans tracking-tight leading-none">
+            FinishLine
+          </h1>
+          <p className="text-[18px] text-on-surface-variant font-sans mt-3">
+            Your AI-powered commitment engine
           </p>
         </div>
 
-        {/* Tab Selection */}
-        <div className="w-full flex bg-[#F1F5F9] dark:bg-[#1C2128] p-1 rounded-xl border border-[#E2E8F0] dark:border-[#30363D]">
-          <button
-            onClick={() => switchMode("google")}
-            className={`flex-1 text-xs font-semibold py-2.5 rounded-lg transition duration-200 cursor-pointer ${
-              authMode === "google"
-                ? "bg-white dark:bg-[#161B22] text-[#4A90D9] shadow-sm"
-                : "text-[#4A5568] dark:text-[#8B949E] hover:text-[#1A202C] dark:hover:text-[#E6EDF3]"
-            }`}
+        {/* Primary CTA Cluster */}
+        <div className="w-full flex flex-col items-center space-y-4">
+          <PillButton
+            variant="primary"
+            onClick={handleGoogleSignIn}
+            disabled={loading}
+            className="w-60 h-[52px] text-[16px] font-semibold tracking-wide flex items-center justify-center"
           >
-            Google OAuth
-          </button>
+            {loading && !showEmailForm ? (
+              <Loader2 className="w-5 h-5 animate-spin text-on-primary" />
+            ) : (
+              <>
+                <GoogleIcon />
+                <span>Sign in with Google</span>
+              </>
+            )}
+          </PillButton>
+
+          {/* Email toggle trigger */}
           <button
-            onClick={() => switchMode("login")}
-            className={`flex-1 text-xs font-semibold py-2.5 rounded-lg transition duration-200 cursor-pointer ${
-              authMode === "login"
-                ? "bg-white dark:bg-[#161B22] text-[#4A90D9] shadow-sm"
-                : "text-[#4A5568] dark:text-[#8B949E] hover:text-[#1A202C] dark:hover:text-[#E6EDF3]"
-            }`}
+            onClick={() => {
+              setShowEmailForm(!showEmailForm);
+              setError(null);
+            }}
+            className="text-[12px] font-semibold font-label text-outline hover:text-on-surface-variant transition-colors duration-200 outline-none uppercase tracking-widest mt-2"
           >
-            Email Login
-          </button>
-          <button
-            onClick={() => switchMode("signup")}
-            className={`flex-1 text-xs font-semibold py-2.5 rounded-lg transition duration-200 cursor-pointer ${
-              authMode === "signup"
-                ? "bg-white dark:bg-[#161B22] text-[#4A90D9] shadow-sm"
-                : "text-[#4A5568] dark:text-[#8B949E] hover:text-[#1A202C] dark:hover:text-[#E6EDF3]"
-            }`}
-          >
-            Email Sign Up
+            or continue with email
           </button>
         </div>
 
-        {/* Error Message banner */}
-        {error && (
-          <div className="w-full text-xs text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-950/20 border border-red-200 dark:border-red-900/50 rounded-xl p-3 text-left">
-            <strong>Error:</strong> {error}
-          </div>
-        )}
-
-        {/* Auth Forms */}
-        <div className="w-full">
-          {authMode === "google" && (
-            <div className="space-y-4">
-              <button
-                onClick={handleGoogleLogin}
-                disabled={loading}
-                className="w-full flex items-center justify-center gap-3 bg-[#4A90D9] hover:bg-[#4A90D9]/90 text-white font-medium py-3 px-5 rounded-xl transition duration-200 shadow-md hover:shadow-lg disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
-              >
-                {loading ? (
-                  <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                ) : (
-                  <>
-                    <svg className="h-5 w-5 fill-current" viewBox="0 0 24 24">
-                      <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
-                      <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" />
-                      <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z" />
-                      <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" />
-                    </svg>
-                    Sign In with Google
-                  </>
-                )}
-              </button>
-              <div className="text-[10px] text-[#4A5568] dark:text-[#8B949E] leading-relaxed text-center">
-                Requires standard Google scopes to synchronize commitments, calendars, and scan Gmail.
-              </div>
-            </div>
-          )}
-
-          {authMode === "login" && (
-            <form onSubmit={handleEmailLogin} className="space-y-4">
-              <div className="space-y-1">
-                <label className="text-xs font-semibold text-[#4A5568] dark:text-[#8B949E]">Email Address</label>
+        {/* Email form expand wrapper */}
+        <AnimatePresence>
+          {showEmailForm && (
+            <motion.form
+              onSubmit={handleEmailAuth}
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: "auto", opacity: 1 }}
+              exit={{ height: 0, opacity: 0 }}
+              transition={{ type: "spring", stiffness: 300, damping: 25 }}
+              className="w-full space-y-4 overflow-hidden mt-2 pb-1"
+            >
+              {/* Email Input */}
+              <div className="relative">
+                <Mail className="absolute left-3.5 top-3.5 w-5 h-5 text-outline pointer-events-none" />
                 <input
                   type="email"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  placeholder="name@example.com"
-                  className="w-full bg-[#F8FAFC] dark:bg-[#1C2128] border border-[#E2E8F0] dark:border-[#30363D] px-3.5 py-2 rounded-xl text-sm focus:outline-none focus:border-[#4A90D9] transition duration-200"
+                  placeholder="Email address"
+                  className="w-full pl-11 pr-4 h-12 bg-surface-container-lowest border border-outline-variant rounded-lg text-on-surface placeholder-text-outline text-[16px] font-sans focus:border-primary focus:ring-2 focus:ring-primary/12 focus:outline-none transition duration-200"
+                  required
+                  disabled={loading}
                 />
               </div>
-              <div className="space-y-1">
-                <label className="text-xs font-semibold text-[#4A5568] dark:text-[#8B949E]">Password</label>
+
+              {/* Password Input */}
+              <div className="relative">
+                <Lock className="absolute left-3.5 top-3.5 w-5 h-5 text-outline pointer-events-none" />
                 <input
                   type="password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  placeholder="••••••••"
-                  className="w-full bg-[#F8FAFC] dark:bg-[#1C2128] border border-[#E2E8F0] dark:border-[#30363D] px-3.5 py-2 rounded-xl text-sm focus:outline-none focus:border-[#4A90D9] transition duration-200"
+                  placeholder="Password"
+                  className="w-full pl-11 pr-4 h-12 bg-surface-container-lowest border border-outline-variant rounded-lg text-on-surface placeholder-text-outline text-[16px] font-sans focus:border-primary focus:ring-2 focus:ring-primary/12 focus:outline-none transition duration-200"
+                  required
+                  disabled={loading}
                 />
               </div>
-              <button
-                type="submit"
-                disabled={loading}
-                className="w-full bg-[#4A90D9] hover:bg-[#4A90D9]/90 text-white font-medium py-3 px-5 rounded-xl transition duration-200 shadow-md hover:shadow-lg disabled:opacity-50 cursor-pointer"
-              >
-                {loading ? (
-                  <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin mx-auto" />
-                ) : (
-                  "Log In"
-                )}
-              </button>
-            </form>
-          )}
 
-          {authMode === "signup" && (
-            <form onSubmit={handleEmailSignUp} className="space-y-4">
-              <div className="space-y-1">
-                <label className="text-xs font-semibold text-[#4A5568] dark:text-[#8B949E]">Full Name</label>
-                <input
-                  type="text"
-                  value={displayName}
-                  onChange={(e) => setDisplayName(e.target.value)}
-                  placeholder="Judge Name"
-                  className="w-full bg-[#F8FAFC] dark:bg-[#1C2128] border border-[#E2E8F0] dark:border-[#30363D] px-3.5 py-2 rounded-xl text-sm focus:outline-none focus:border-[#4A90D9] transition duration-200"
-                />
-              </div>
-              <div className="space-y-1">
-                <label className="text-xs font-semibold text-[#4A5568] dark:text-[#8B949E]">Email Address</label>
-                <input
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  placeholder="name@example.com"
-                  className="w-full bg-[#F8FAFC] dark:bg-[#1C2128] border border-[#E2E8F0] dark:border-[#30363D] px-3.5 py-2 rounded-xl text-sm focus:outline-none focus:border-[#4A90D9] transition duration-200"
-                />
-              </div>
-              <div className="space-y-1">
-                <label className="text-xs font-semibold text-[#4A5568] dark:text-[#8B949E]">Password</label>
-                <input
-                  type="password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  placeholder="••••••••"
-                  className="w-full bg-[#F8FAFC] dark:bg-[#1C2128] border border-[#E2E8F0] dark:border-[#30363D] px-3.5 py-2 rounded-xl text-sm focus:outline-none focus:border-[#4A90D9] transition duration-200"
-                />
-              </div>
-              <button
-                type="submit"
-                disabled={loading}
-                className="w-full bg-[#4A90D9] hover:bg-[#4A90D9]/90 text-white font-medium py-3 px-5 rounded-xl transition duration-200 shadow-md hover:shadow-lg disabled:opacity-50 cursor-pointer"
-              >
-                {loading ? (
-                  <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin mx-auto" />
-                ) : (
-                  "Create Account"
-                )}
-              </button>
-            </form>
-          )}
-        </div>
+              {/* Email submit CTA and Toggle */}
+              <div className="space-y-3 pt-1">
+                <PillButton
+                  variant="primary"
+                  type="submit"
+                  disabled={loading}
+                  className="w-full h-11 text-[14px]"
+                >
+                  {loading && showEmailForm ? (
+                    <Loader2 className="w-4 h-4 animate-spin text-on-primary" />
+                  ) : isSignUp ? (
+                    "Create Account"
+                  ) : (
+                    "Sign In"
+                  )}
+                </PillButton>
 
-        {/* Footer Info */}
-        <div className="text-[10px] text-[#4A5568] dark:text-[#8B949E] leading-relaxed text-center border-t border-[#E2E8F0] dark:border-[#30363D] pt-4 w-full">
-          Standard Email registration lets you bypass Google authentication to view dashboard components and core planner tasks instantly.
-        </div>
-      </div>
-    </div>
+                {/* Sign-in / Sign-up state switch */}
+                <button
+                  type="button"
+                  onClick={() => setIsSignUp(!isSignUp)}
+                  className="text-xs text-outline hover:text-on-surface-variant font-label font-semibold underline block mx-auto transition-colors"
+                >
+                  {isSignUp ? "Already have an account? Sign In" : "Need an account? Create Account"}
+                </button>
+              </div>
+            </motion.form>
+          )}
+        </AnimatePresence>
+
+        {/* Error notification banner */}
+        <AnimatePresence>
+          {error && (
+            <motion.div
+              initial={{ y: -12, opacity: 0 }}
+              animate={{ y: 0, opacity: 1 }}
+              exit={{ y: -12, opacity: 0 }}
+              className="bg-error-container border-l-[3px] border-error text-on-error-container px-4 py-3 rounded-lg text-[12px] font-semibold font-label flex items-start gap-2 text-left w-full shadow-sm"
+            >
+              <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+              <span>{error}</span>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </motion.div>
+
+      {/* Floating Footer info */}
+      <footer className="absolute bottom-6 left-1/2 -translate-x-1/2 text-[12px] font-semibold font-label text-outline tracking-wider uppercase select-none">
+        Privacy &middot; Terms
+      </footer>
+    </main>
   );
 }

@@ -1,14 +1,10 @@
 import type { Metadata } from "next";
-import { Inter } from "next/font/google";
+import { plusJakartaSans, manrope } from "@/lib/fonts";
+import { ThemeProvider } from "@/lib/theme-provider";
 import "./globals.css";
 
-const inter = Inter({
-  variable: "--font-sans",
-  subsets: ["latin"],
-});
-
 export const metadata: Metadata = {
-  title: "FinishLine — AI Accountability Partner",
+  title: "FinishLine",
   description: "Your AI companion for commitments and accountability.",
 };
 
@@ -20,9 +16,19 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className={`${inter.variable} h-full antialiased`}
+      className={`${plusJakartaSans.variable} ${manrope.variable} h-full antialiased`}
+      suppressHydrationWarning
     >
-      <body className="min-h-full flex flex-col font-sans">{children}</body>
+      <body className="min-h-full flex flex-col font-sans bg-background text-on-surface">
+        <ThemeProvider
+          attribute="class"
+          defaultTheme="system"
+          enableSystem
+          disableTransitionOnChange={false}
+        >
+          {children}
+        </ThemeProvider>
+      </body>
     </html>
   );
 }

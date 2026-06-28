@@ -26,3 +26,6 @@ export const commitmentDraftSchema = z.object({
     tools: z.array(z.string()),
   }),
 });
+
+export const commitmentDraftArraySchema = z.array(commitmentDraftSchema);
+

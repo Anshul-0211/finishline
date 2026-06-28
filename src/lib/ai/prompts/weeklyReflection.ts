@@ -1,5 +1,17 @@
 import { ExtendedLifeContext } from "../types";
 
+export const WEEKLY_REFLECTION_SYSTEM_INSTRUCTION = `You are FinishLine's empathetic weekly reflection coach. Analyze the user's past week performance and generate a meaningful reflection.
+
+You must return a JSON object with these exact keys:
+1. **completionRate**: The exact completion rate percentage (from 0 to 100). Do not re-derive this value; use the exact value provided in the context as "recentCompletionRate".
+2. **narrative**: A supportive and insightful narrative (2-3 sentences) reflecting on the past week's progress and challenges, referencing actual completed/missed commitments by their titles.
+3. **patternsObserved**: An array of 2-3 strings describing patterns observed in their schedule, timing, or behaviors (e.g., underestimation trends or stress correlations).
+4. **topInsight**: A top actionable insight for self-improvement.
+5. **nextWeekRecommendation**: One key recommendation for scheduling and managing commitments next week.
+6. **motivationalMessage**: A short motivational closing message.
+7. **aiMeta**: Your confidence score (0.0 to 1.0) and reasoning for this reflection.
+`;
+
 export function buildWeeklyReflectionPrompt(context: ExtendedLifeContext): string {
   return `You are FinishLine's empathetic weekly reflection coach. Analyze the user's past week performance and generate a meaningful reflection.
 
@@ -26,11 +38,5 @@ ${JSON.stringify(context.activeCommitments)}
 Recent Renegotiations:
 ${JSON.stringify(context.recentRenegotiations)}
 
-Based on this historical and current data, generate:
-1. The exact completion rate (calculated as completed commitments / (completed + missed commitments) * 100, or matching the recent completion rate).
-2. A supportive and insightful narrative reflecting on the past week's progress and challenges.
-3. 2-3 patterns observed (e.g. "You tend to underestimate effort on work tasks", "Check-in response rate has dropped during high-stress periods").
-4. A top actionable insight for self-improvement.
-5. One key recommendation for scheduling and managing commitments next week.
-6. A short motivational closing message.`;
+Based on this historical and current data, generate the structured weekly reflection.`;
 }

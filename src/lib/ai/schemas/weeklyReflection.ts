@@ -10,3 +10,5 @@ export const weeklyReflectionResponseSchema = z.object({
   motivationalMessage: z.string(),
   aiMeta: aiMetaSchema,
 });
+
+export const WeeklyReflectionSchema = weeklyReflectionResponseSchema;

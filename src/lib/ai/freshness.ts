@@ -1,16 +1,19 @@
 import { adminDb } from "@/lib/firebase/admin";
 import { Timestamp } from "firebase-admin/firestore";
+import { User } from "@/lib/types";
 import { assembleCoreContext, assembleExtendedContext } from "./context";
-import { CoreLifeContext, ExtendedLifeContext } from "./types";
+import { CoreLifeContext, ExtendedLifeContext } from "../types/lifeContext";
 
 const STALENESS_THRESHOLDS = {
-  calendar: 30 * 60 * 1000,          // 30 minutes
-  commitments: 5 * 60 * 1000,        // 5 minutes
-  stressScore: 60 * 60 * 1000,       // 1 hour
-  learningCoefficients: 24 * 60 * 60 * 1000,  // 24 hours
+  calendar: 30 * 60 * 1000,
+  commitments: 5 * 60 * 1000,
+  stressScore: 60 * 60 * 1000,
+  learningCoefficients: 24 * 60 * 60 * 1000,
+  reflection: 7 * 24 * 60 * 60 * 1000,
 } as const;
 
 async function refreshCalendarSlots(userId: string): Promise<void> {
+  console.log(`[Freshness] refreshCalendarSlots called for user: ${userId}`);
   // Update timestamp in user document to indicate refresh occurred
   await adminDb.collection("users").doc(userId).update({
     calendarLastFetchedAt: Timestamp.now()
@@ -18,8 +21,9 @@ async function refreshCalendarSlots(userId: string): Promise<void> {
 }
 
 async function recomputeStressScore(userId: string): Promise<void> {
+  console.log(`[Freshness] recomputeStressScore called for user: ${userId}`);
   const commitmentsSnap = await adminDb.collection("users").doc(userId).collection("commitments")
-    .where("status", "==", "active")
+    .where("status", "in", ["active", "renegotiating"])
     .get();
   
   const count = commitmentsSnap.size;
@@ -32,6 +36,8 @@ async function recomputeStressScore(userId: string): Promise<void> {
   });
 }
 
+export async function ensureFreshContext(userId: string, tier: 'core'): Promise<CoreLifeContext>;
+export async function ensureFreshContext(userId: string, tier: 'extended'): Promise<ExtendedLifeContext>;
 export async function ensureFreshContext(
   userId: string,
   tier: 'core' | 'extended'
@@ -40,18 +46,32 @@ export async function ensureFreshContext(
   if (!userDoc.exists) {
     throw new Error(`User ${userId} not found`);
   }
-  const user = userDoc.data() as any;
+  const user = userDoc.data() as User;
   const now = Date.now();
 
   // Refresh calendar if stale
-  const lastFetched = user.calendarLastFetchedAt?.toDate?.()?.getTime() || 0;
+  const lastFetched = (user.calendarLastFetchedAt instanceof Date)
+    ? user.calendarLastFetchedAt.getTime()
+    : (user.calendarLastFetchedAt?.toDate?.()
+      ? user.calendarLastFetchedAt.toDate().getTime()
+      : (typeof user.calendarLastFetchedAt === 'string'
+        ? Date.parse(user.calendarLastFetchedAt)
+        : 0));
+
   const calendarAge = now - lastFetched;
   if (calendarAge > STALENESS_THRESHOLDS.calendar) {
     await refreshCalendarSlots(userId);
   }
 
   // Refresh stress score if stale
-  const lastComputed = user.stats?.stressScoreComputedAt?.toDate?.()?.getTime() || 0;
+  const lastComputed = (user.stats?.stressScoreComputedAt instanceof Date)
+    ? user.stats.stressScoreComputedAt.getTime()
+    : (user.stats?.stressScoreComputedAt?.toDate?.()
+      ? user.stats.stressScoreComputedAt.toDate().getTime()
+      : (typeof user.stats?.stressScoreComputedAt === 'string'
+        ? Date.parse(user.stats.stressScoreComputedAt)
+        : 0));
+
   const stressAge = now - lastComputed;
   if (stressAge > STALENESS_THRESHOLDS.stressScore) {
     await recomputeStressScore(userId);
