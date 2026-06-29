@@ -50,10 +50,10 @@ export async function ensureFreshContext(
   const now = Date.now();
 
   // Refresh calendar if stale
-  const lastFetched = (user.calendarLastFetchedAt instanceof Date)
-    ? user.calendarLastFetchedAt.getTime()
-    : (user.calendarLastFetchedAt?.toDate?.()
-      ? user.calendarLastFetchedAt.toDate().getTime()
+  const lastFetched = ((user.calendarLastFetchedAt as any) instanceof Date)
+    ? (user.calendarLastFetchedAt as any).getTime()
+    : ((user.calendarLastFetchedAt as any)?.toDate?.()
+      ? (user.calendarLastFetchedAt as any).toDate().getTime()
       : (typeof user.calendarLastFetchedAt === 'string'
         ? Date.parse(user.calendarLastFetchedAt)
         : 0));
@@ -64,12 +64,12 @@ export async function ensureFreshContext(
   }
 
   // Refresh stress score if stale
-  const lastComputed = (user.stats?.stressScoreComputedAt instanceof Date)
-    ? user.stats.stressScoreComputedAt.getTime()
-    : (user.stats?.stressScoreComputedAt?.toDate?.()
-      ? user.stats.stressScoreComputedAt.toDate().getTime()
+  const lastComputed = ((user.stats?.stressScoreComputedAt as any) instanceof Date)
+    ? (user.stats.stressScoreComputedAt as any).getTime()
+    : ((user.stats?.stressScoreComputedAt as any)?.toDate?.()
+      ? (user.stats.stressScoreComputedAt as any).toDate().getTime()
       : (typeof user.stats?.stressScoreComputedAt === 'string'
-        ? Date.parse(user.stats.stressScoreComputedAt)
+        ? Date.parse(user.stats.stressScoreComputedAt as any)
         : 0));
 
   const stressAge = now - lastComputed;

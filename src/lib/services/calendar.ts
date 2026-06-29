@@ -1,8 +1,8 @@
 import { adminDb } from "@/lib/firebase/admin";
-import { decrypt, encrypt } from "@/lib/auth/tokenEncryption";
 import { User, TimeSlot } from "@/lib/types";
 import { Timestamp } from "firebase-admin/firestore";
 import { google } from "googleapis";
+import { getFreshAccessToken } from "@/lib/services/auth/token-refresher";
 
 /**
  * Returns a deterministic list of mock busy periods for validation.
@@ -32,20 +32,7 @@ export function getMockBusyPeriods(start: Date, end: Date): TimeSlot[] {
  * Automatically handles token refresh.
  */
 export async function getCalendarClient(userId: string) {
-  const userDoc = await adminDb.collection("users").doc(userId).get();
-  if (!userDoc.exists) {
-    throw new Error(`User ${userId} not found in database.`);
-  }
-  const user = userDoc.data() as User;
-  
-  const encryptedRefreshToken = (user as any).googleCalendarRefreshToken || user.googleRefreshToken;
-  if (!encryptedRefreshToken) {
-    throw new Error("Missing Google refresh token. Please connect Google account.");
-  }
-  const refreshToken = decrypt(encryptedRefreshToken);
-  if (!refreshToken) {
-    throw new Error("Failed to decrypt Google refresh token.");
-  }
+  const freshAccessToken = await getFreshAccessToken(userId, "calendar");
 
   const clientId = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID || process.env.GOOGLE_CLIENT_ID;
   const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
@@ -61,26 +48,7 @@ export async function getCalendarClient(userId: string) {
   );
 
   oauth2Client.setCredentials({
-    refresh_token: refreshToken
-  });
-
-  // Automatically handle token refresh and write new tokens back to Firestore
-  oauth2Client.on("tokens", async (tokens) => {
-    const updates: Record<string, unknown> = {};
-    if (tokens.access_token) {
-      updates.googleAccessToken = encrypt(tokens.access_token);
-      if (tokens.expiry_date) {
-        updates.tokenExpiry = Timestamp.fromMillis(tokens.expiry_date);
-      }
-    }
-    if (tokens.refresh_token) {
-      updates.googleRefreshToken = encrypt(tokens.refresh_token);
-    }
-    if (Object.keys(updates).length > 0) {
-      updates.updatedAt = Timestamp.now();
-      await adminDb.collection("users").doc(userId).update(updates);
-      console.log(`[Calendar] Auto-refreshed and updated Google tokens in Firestore for user: ${userId}`);
-    }
+    access_token: freshAccessToken
   });
 
   return google.calendar({ version: "v3", auth: oauth2Client });
@@ -114,7 +82,7 @@ export async function getCalendarBusyPeriods(userId: string, start: Date, end: D
     const user = userDoc.data() as User;
     
     // If no credentials or mock user, fall back to mock busy slots
-    if (!user.googleAccessToken) {
+    if (!(user as any).googleCalendarRefreshToken && !user.googleRefreshToken && !user.googleAccessToken) {
       return getMockBusyPeriods(start, end);
     }
 

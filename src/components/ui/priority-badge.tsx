@@ -14,8 +14,9 @@ const PRIORITY_STYLES: Record<PriorityType, string> = {
 };
 
 export const PriorityBadge: React.FC<PriorityBadgeProps> = ({ priority }) => {
-  const displayLabel = priority.charAt(0).toUpperCase() + priority.slice(1);
-  const colorClass = PRIORITY_STYLES[priority] || "";
+  const safePriority = priority || "medium";
+  const displayLabel = safePriority.charAt(0).toUpperCase() + safePriority.slice(1);
+  const colorClass = PRIORITY_STYLES[safePriority] || "text-outline bg-outline/10";
 
   return (
     <span

@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { Sparkles, Lightbulb, ArrowRight, Activity, Loader2 } from "lucide-react";
+import { Sparkles, Lightbulb, ArrowRight, Activity, Loader2, AlertTriangle, ArrowLeft } from "lucide-react";
 import { onAuthStateChanged } from "firebase/auth";
 import { motion, AnimatePresence } from "framer-motion";
 import { useTheme } from "next-themes";
@@ -10,16 +10,35 @@ import { auth } from "@/lib/firebase/client";
 import { useUserStore } from "@/lib/stores/useUserStore";
 import { NavShell } from "@/components/nav-shell";
 import { ConfidenceBadge } from "@/components/ui/confidence-badge";
+import { AmberReviewBanner } from "@/components/ui/amber-review-banner";
 import { SkeletonRow } from "@/components/ui/skeleton-row";
 import { PillButton } from "@/components/ui/pill-button";
 
+interface WeeklyReflectionResponse {
+  completionRate: number;
+  narrative: string;
+  patternsObserved: string[];
+  topInsight: string;
+  nextWeekRecommendation: string;
+  motivationalMessage: string;
+  aiMeta: {
+    confidence: number;
+    confidenceLabel: string;
+    reasoning: string;
+  };
+  requiresUserReview: boolean;
+  reviewReason: string | null;
+}
+
 export default function WeeklyReflectionPage() {
   const router = useRouter();
-  const { user, userProfile } = useUserStore();
+  const { user, setUser, userProfile } = useUserStore();
   const { resolvedTheme } = useTheme();
 
-  const [generationState, setGenerationState] = useState<"idle" | "loading" | "ready">(`idle`);
-  const [completionRate, setCompletionRate] = useState(73);
+  const [generationState, setGenerationState] = useState<"idle" | "loading" | "ready" | "error">("idle");
+  const [reflectionData, setReflectionData] = useState<WeeklyReflectionResponse | null>(null);
+  const [completionRate, setCompletionRate] = useState(0);
+  const [error, setError] = useState<string | null>(null);
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
@@ -30,24 +49,50 @@ export default function WeeklyReflectionPage() {
   useEffect(() => {
     const unsubscribeAuth = onAuthStateChanged(auth, (firebaseUser) => {
       if (!firebaseUser) {
+        setUser(null);
         router.push("/");
+      } else {
+        setUser(firebaseUser);
       }
     });
     return () => unsubscribeAuth();
-  }, [router]);
+  }, [router, setUser]);
 
-  const handleGenerate = () => {
+  // Trigger SVG Arc Animation when data arrives
+  useEffect(() => {
+    if (!reflectionData) return;
+    setCompletionRate(reflectionData.completionRate);
+  }, [reflectionData?.completionRate]);
+
+  // Generate Reflection Handler
+  const handleGenerate = async () => {
+    if (!user) return;
     setGenerationState("loading");
-    setTimeout(() => {
+    setError(null);
+    try {
+      console.log("[Frontend] Triggering /api/ai/weekly-reflection for user:", user.uid);
+      const res = await fetch("/api/ai/weekly-reflection", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId: user.uid }),
+      });
+      console.log("[Frontend] /api/ai/weekly-reflection response status:", res.status);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      console.log("[Frontend] Weekly reflection response data:", data);
+      setReflectionData(data);
       setGenerationState("ready");
-    }, 2000);
+    } catch (e: any) {
+      console.error("[Frontend] handleGenerate failed:", e);
+      setError(e.message ?? "Reflection generation failed. Try again.");
+      setGenerationState("error");
+    }
   };
 
   const handleRegenerate = () => {
-    setGenerationState("loading");
-    setTimeout(() => {
-      setGenerationState("ready");
-    }, 1500);
+    setReflectionData(null);
+    setCompletionRate(0);
+    setGenerationState("idle");
   };
 
   const displayName = userProfile?.displayName || user?.displayName || "User";
@@ -85,51 +130,28 @@ export default function WeeklyReflectionPage() {
   const circumference = 2 * Math.PI * radius; // ~376.99
   const strokeDashoffset = circumference - (completionRate / 100) * circumference;
 
-  const mockPatterns = [
-    "Tasks scheduled between 9:00 AM and 11:30 AM completed 90% of the time.",
-    "Procrastination alerts spiked on Tuesday afternoons during academic blocks."
-  ];
-
   return (
     <NavShell displayName={displayName}>
       <div className="max-w-[720px] mx-auto px-6 py-8 flex flex-col gap-8 font-sans">
         
-        {/* Test Control panel */}
-        {generationState === "ready" && (
-          <div className="bg-surface-container-low px-4 py-2.5 rounded-xl border border-outline-variant flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs text-on-surface-variant font-label">
-            <span>Test Completion Arc Colors:</span>
-            <div className="flex gap-2">
-              <button
-                onClick={() => setCompletionRate(73)}
-                className={`px-2.5 py-1 rounded font-semibold transition ${
-                  completionRate === 73 ? "bg-primary text-on-primary" : "bg-surface-container-highest"
-                }`}
-              >
-                73% (Teal)
-              </button>
-              <button
-                onClick={() => setCompletionRate(55)}
-                className={`px-2.5 py-1 rounded font-semibold transition ${
-                  completionRate === 55 ? "bg-primary text-on-primary" : "bg-surface-container-highest"
-                }`}
-              >
-                55% (Amber)
-              </button>
-              <button
-                onClick={() => setCompletionRate(32)}
-                className={`px-2.5 py-1 rounded font-semibold transition ${
-                  completionRate === 32 ? "bg-primary text-on-primary" : "bg-surface-container-highest"
-                }`}
-              >
-                32% (Red)
-              </button>
-            </div>
-          </div>
-        )}
-
+        {/* Back Link Header */}
+        <header className="flex flex-col gap-2">
+          <button
+            onClick={() => router.push("/dashboard")}
+            className="flex items-center gap-1.5 text-primary hover:text-primary-container text-[14px] font-semibold outline-none w-fit focus-visible:underline"
+            aria-label="Back to Dashboard"
+          >
+            <ArrowLeft className="w-4 h-4" />
+            <span>Back to Dashboard</span>
+          </button>
+          
+          <h1 className="text-[26px] font-bold text-on-surface tracking-[-0.01em] leading-none">
+            Weekly Reflection
+          </h1>
+        </header>
         <AnimatePresence mode="wait">
-          {generationState === "idle" && (
-            /* PRE-GENERATION STATE */
+          {(generationState === "idle" || generationState === "error") && (
+            /* PRE-GENERATION / ERROR HERO STATE */
             <motion.div
               key="idle"
               initial={{ y: 15, opacity: 0 }}
@@ -150,13 +172,20 @@ export default function WeeklyReflectionPage() {
                 </p>
               </div>
 
+              {generationState === "error" && error && (
+                <div className="flex items-center gap-2.5 p-4 bg-error-container text-on-error-container rounded-xl text-[14px] font-semibold font-sans w-full max-w-[320px] mb-2 border border-error/20">
+                  <AlertTriangle className="w-4.5 h-4.5 text-error flex-shrink-0" />
+                  <span>{error}</span>
+                </div>
+              )}
+
               <PillButton
-                variant="primary"
+                variant={generationState === "error" ? "outline" : "primary"}
                 onClick={handleGenerate}
                 className="w-full max-w-[280px] h-[56px] text-[16px] font-semibold flex items-center justify-center gap-2"
               >
-                <Sparkles className="w-5 h-5 flex-shrink-0" />
-                <span>Generate My Reflection</span>
+                {generationState !== "error" && <Sparkles className="w-5 h-5 flex-shrink-0" />}
+                <span>{generationState === "error" ? "Try Again" : "Generate My Reflection"}</span>
               </PillButton>
             </motion.div>
           )}
@@ -183,7 +212,7 @@ export default function WeeklyReflectionPage() {
             </motion.div>
           )}
 
-          {generationState === "ready" && (
+          {generationState === "ready" && reflectionData && (
             /* POST-GENERATION STATE */
             <motion.div
               key="ready"
@@ -191,6 +220,10 @@ export default function WeeklyReflectionPage() {
               animate={{ y: 0, opacity: 1 }}
               className="space-y-8"
             >
+              {/* Requires User Review / Low Confidence Banner */}
+              {(reflectionData.requiresUserReview || (reflectionData.aiMeta?.confidence !== undefined && reflectionData.aiMeta.confidence < 0.5)) && (
+                <AmberReviewBanner message={reflectionData.reviewReason ?? `Low AI Confidence (${Math.round((reflectionData.aiMeta?.confidence ?? 0) * 100)}%): ${reflectionData.aiMeta?.reasoning}`} />
+              )}
               
               {/* COMPLETION RATE CIRCLE SECTION */}
               <section className="flex flex-col items-center text-center gap-4 py-4">
@@ -248,7 +281,7 @@ export default function WeeklyReflectionPage() {
                   This Week
                 </span>
                 <p className="text-[16px] text-on-surface font-sans leading-[1.7] mt-2">
-                  You successfully navigated the heavy exam preparation blocks on Tuesday and cleared your OS allocator prototype codes. Postponing two optional sync panels preserved key calendar spaces, leading to a healthy 73% completion record.
+                  {reflectionData.narrative}
                 </p>
               </section>
 
@@ -260,7 +293,7 @@ export default function WeeklyReflectionPage() {
                     Key Insight
                   </span>
                   <p className="text-[16px] font-semibold text-on-surface font-sans leading-relaxed">
-                    Protecting 9:00 AM to 11:30 AM blocks resulted in 90% of your academic milestones being met this week.
+                    {reflectionData.topInsight}
                   </p>
                 </div>
               </section>
@@ -273,39 +306,41 @@ export default function WeeklyReflectionPage() {
                     Next Week
                   </span>
                   <p className="text-[16px] font-semibold text-on-surface font-sans leading-relaxed">
-                    Lock mid-morning blocks on Monday and Tuesday to prepare for your Google mock technical rounds.
+                    {reflectionData.nextWeekRecommendation}
                   </p>
                 </div>
               </section>
 
               {/* PATTERNS OBSERVED */}
-              <section className="space-y-3">
-                <h4 className="text-[12px] font-semibold font-label text-outline tracking-wider uppercase pl-1">
-                  Patterns Observed
-                </h4>
-                <div className="flex flex-col gap-2.5">
-                  {mockPatterns.map((pattern, idx) => (
-                    <motion.div
-                      key={idx}
-                      initial={{ x: -10, opacity: 0 }}
-                      animate={{ x: 0, opacity: 1 }}
-                      transition={{ delay: idx * 0.06 }}
-                      className="flex items-start gap-2.5 bg-surface-container-lowest border border-outline-variant/20 rounded-lg p-3 shadow-sm"
-                    >
-                      <Activity className="w-4 h-4 text-primary-container flex-shrink-0 mt-0.5" />
-                      <span className="text-[14px] text-on-surface font-sans leading-normal">
-                        {pattern}
-                      </span>
-                    </motion.div>
-                  ))}
-                </div>
-              </section>
+              {reflectionData.patternsObserved.length > 0 && (
+                <section className="space-y-3">
+                  <h4 className="text-[12px] font-semibold font-label text-outline tracking-wider uppercase pl-1">
+                    Patterns Observed
+                  </h4>
+                  <div className="flex flex-col gap-2.5">
+                    {reflectionData.patternsObserved.map((pattern, idx) => (
+                      <motion.div
+                        key={idx}
+                        initial={{ x: -10, opacity: 0 }}
+                        animate={{ x: 0, opacity: 1 }}
+                        transition={{ delay: idx * 0.06 }}
+                        className="flex items-start gap-2.5 bg-surface-container-lowest border border-outline-variant/20 rounded-lg p-3 shadow-sm"
+                      >
+                        <Activity className="w-4 h-4 text-primary-container flex-shrink-0 mt-0.5" />
+                        <span className="text-[14px] text-on-surface font-sans leading-normal">
+                          {pattern}
+                        </span>
+                      </motion.div>
+                    ))}
+                  </div>
+                </section>
+              )}
 
               {/* MOTIVATIONAL MESSAGE */}
               <section className="bg-surface-container-low rounded-lg p-6 relative flex flex-col items-center justify-center text-center">
                 <span className="text-[48px] font-serif text-primary leading-none h-6 select-none">“</span>
                 <p className="italic text-[18px] text-on-surface font-sans leading-relaxed px-4">
-                  You had a highly productive week despite the tight academic schedule. Protecting your rest slots will build long-term momentum.
+                  {reflectionData.motivationalMessage}
                 </p>
                 <span className="text-[48px] font-serif text-primary leading-none h-6 mt-2 select-none">”</span>
               </section>
@@ -315,7 +350,15 @@ export default function WeeklyReflectionPage() {
                 <span className="text-[11px] font-semibold text-outline uppercase tracking-wider mb-1 font-label">
                   AI Confidence Level
                 </span>
-                <ConfidenceBadge label="high" />
+                {(() => {
+                  const label = (reflectionData.aiMeta.confidenceLabel === "very_high" ||
+                    reflectionData.aiMeta.confidenceLabel === "high" ||
+                    reflectionData.aiMeta.confidenceLabel === "medium" ||
+                    reflectionData.aiMeta.confidenceLabel === "low")
+                    ? reflectionData.aiMeta.confidenceLabel
+                    : "medium";
+                  return <ConfidenceBadge label={label} />;
+                })()}
               </div>
 
               {/* REGENERATE ACTION */}

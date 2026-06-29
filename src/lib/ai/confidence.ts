@@ -14,7 +14,7 @@ export function applyConfidenceAwareness<T extends { aiMeta: { confidence: numbe
   const { confidence, reasoning } = result.aiMeta;
   const label = deriveConfidenceLabel(confidence);
 
-  const requiresUserReview = confidence < 0.75;
+  const requiresUserReview = confidence < 0.5;
   const reviewReason = requiresUserReview
     ? `AI confidence is ${label} (${Math.round(confidence * 100)}%): ${reasoning}`
     : null;

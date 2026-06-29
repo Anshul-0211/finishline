@@ -1,5 +1,5 @@
 import { adminDb } from "@/lib/firebase/admin";
-import { User, Commitment } from "@/lib/types";
+import { User, Commitment, firestoreToCommitment } from "@/lib/types";
 
 /**
  * Fetches all active users in the system.
@@ -16,5 +16,5 @@ export async function getActiveCommitmentsForUser(userId: string): Promise<Commi
   const snap = await adminDb.collection("users").doc(userId).collection("commitments")
     .where("status", "in", ["active", "renegotiating"])
     .get();
-  return snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Commitment));
+  return snap.docs.map(doc => firestoreToCommitment(doc as any));
 }

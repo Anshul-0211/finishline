@@ -56,7 +56,7 @@ function getMillis(val: DateInput): number {
  */
 export async function detectCollisions(userId: string, commitments: Commitment[]): Promise<CollisionResult[]> {
   const start = new Date();
-  const end = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days from now
+  const end = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000); // 14 days from now
   
   // 1. Fetch calendar busy periods
   const busyPeriods = await getCalendarBusyPeriods(userId, start, end);
@@ -73,14 +73,14 @@ export async function detectCollisions(userId: string, commitments: Commitment[]
 
     const scheduledBlocks = c.scheduledBlocks || [];
     for (const block of scheduledBlocks) {
-      const blockStart = getMillis(block.start);
-      const blockEnd = getMillis(block.end);
+      const blockStart = getMillis(block.start || (block as any).startTime);
+      const blockEnd = getMillis(block.end || (block as any).endTime);
       if (blockStart === 0 || blockEnd === 0) continue;
 
       // A. Check against calendar busy periods
       for (const busy of busyPeriods) {
-        const busyStart = getMillis(busy.start);
-        const busyEnd = getMillis(busy.end);
+        const busyStart = getMillis(busy.start || (busy as any).startTime);
+        const busyEnd = getMillis(busy.end || (busy as any).endTime);
         if (busyStart === 0 || busyEnd === 0) continue;
 
         const overlaps = Math.max(blockStart, busyStart) < Math.min(blockEnd, busyEnd);
@@ -99,8 +99,8 @@ export async function detectCollisions(userId: string, commitments: Commitment[]
         if (other.id === c.id) continue;
         const otherBlocks = other.scheduledBlocks || [];
         for (const otherBlock of otherBlocks) {
-          const otherStart = getMillis(otherBlock.start);
-          const otherEnd = getMillis(otherBlock.end);
+          const otherStart = getMillis(otherBlock.start || (otherBlock as any).startTime);
+          const otherEnd = getMillis(otherBlock.end || (otherBlock as any).endTime);
           if (otherStart === 0 || otherEnd === 0) continue;
 
           const overlaps = Math.max(blockStart, otherStart) < Math.min(blockEnd, otherEnd);

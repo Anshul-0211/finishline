@@ -10,11 +10,13 @@ import { auth } from "@/lib/firebase/client";
 import { useUserStore } from "@/lib/stores/useUserStore";
 import { useCommitmentsStore } from "@/lib/stores/useCommitmentsStore";
 import { PillButton } from "@/components/ui/pill-button";
+import { updateCommitment } from "@/lib/firestore";
+import { serverTimestamp } from "firebase/firestore";
 
 export default function FocusModePage({ params }: { params: { id: string } }) {
   const router = useRouter();
-  const { user, userProfile } = useUserStore();
-  const { commitments } = useCommitmentsStore();
+  const { user, setUser, userProfile, subscribeToUserProfile } = useUserStore();
+  const { commitments, loading: commitmentsLoading, subscribeToCommitments } = useCommitmentsStore();
   const { resolvedTheme } = useTheme();
 
   // State Management
@@ -24,7 +26,7 @@ export default function FocusModePage({ params }: { params: { id: string } }) {
   const [breakMinutes, setBreakMinutes] = useState(5);
   const [secondsRemaining, setSecondsRemaining] = useState(25 * 60);
   const [sessionIndex, setSessionIndex] = useState(1);
-  const [progressPercentage, setProgressPercentage] = useState(50);
+  const [progressPercentage, setProgressPercentage] = useState(0);
   const [showComplete, setShowComplete] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [mounted, setMounted] = useState(false);
@@ -37,11 +39,49 @@ export default function FocusModePage({ params }: { params: { id: string } }) {
   useEffect(() => {
     const unsubscribeAuth = onAuthStateChanged(auth, (firebaseUser) => {
       if (!firebaseUser) {
+        setUser(null);
         router.push("/");
+      } else {
+        setUser(firebaseUser);
       }
     });
     return () => unsubscribeAuth();
-  }, [router]);
+  }, [router, setUser]);
+
+  // Firestore Commitments Subscription
+  useEffect(() => {
+    if (!user?.uid) return;
+    const unsub = subscribeToCommitments(user.uid);
+    return () => {
+      if (unsub) unsub();
+    };
+  }, [user?.uid, subscribeToCommitments]);
+
+  // Firestore User Profile Subscription
+  useEffect(() => {
+    if (!user?.uid) return;
+    const unsub = subscribeToUserProfile(user.uid);
+    return () => {
+      if (unsub) unsub();
+    };
+  }, [user?.uid, subscribeToUserProfile]);
+
+  // Redirect if commitments are loaded and no matching commitment is found
+  useEffect(() => {
+    if (!user || commitmentsLoading) return;
+    const commitment = commitments.find((c) => c.id === params.id);
+    if (!commitment) {
+      router.push("/dashboard");
+    }
+  }, [user, commitments, commitmentsLoading, params.id, router]);
+
+  // Sync progressPercentage state with commitment data in Firestore
+  useEffect(() => {
+    const commitment = commitments.find((c) => c.id === params.id);
+    if (commitment) {
+      setProgressPercentage(commitment.completionPercentage ?? 0);
+    }
+  }, [commitments, params.id]);
 
   // Timer loop logic
   useEffect(() => {
@@ -81,12 +121,21 @@ export default function FocusModePage({ params }: { params: { id: string } }) {
     setSecondsRemaining(isBreak ? breakMinutes * 60 : focusMinutes * 60);
   };
 
-  const handleLogProgress = () => {
-    alert(`Progress logged successfully: ${progressPercentage}% completed!`);
-    setShowComplete(false);
-    setIsBreak(false);
-    setSecondsRemaining(focusMinutes * 60);
-    setSessionIndex((prev) => (prev < 4 ? prev + 1 : 1));
+  const handleLogProgress = async () => {
+    if (!params.id) return;
+    try {
+      await updateCommitment(params.id, {
+        lastProgressAt: serverTimestamp() as any,
+        daysSinceLastProgress: 0,
+        completionPercentage: progressPercentage,
+      });
+      setShowComplete(false);
+      setIsBreak(false);
+      setSecondsRemaining(focusMinutes * 60);
+      setSessionIndex((prev) => (prev < 4 ? prev + 1 : 1));
+    } catch (err) {
+      console.error("Failed to log focus progress:", err);
+    }
   };
 
   const handleStartBreak = () => {
@@ -103,18 +152,21 @@ export default function FocusModePage({ params }: { params: { id: string } }) {
     setShowEditModal(false);
   };
 
-  const handleCompleteTask = () => {
-    // INTENDED BACKEND USECASE:
-    // When a user successfully finishes a work block and taps this button, the system should:
-    // 1. Fetch the authenticated user's ID and target commitment ID.
-    // 2. Query Firestore backend `users/{userId}/commitments/{commitmentId}`.
-    // 3. Perform a database update transaction shifting `status` to "completed" and writing the `completedAt` timestamp.
-    // 4. Update the user's statistics in Firestore (e.g. increment `completedCount`, recompute weekly stress score).
-    // 5. Clean up any active calendar slots or work blocks that were pre-allocated for this task.
-    
-    alert("Intended Backend Action: Write 'status: completed' to Firestore users/{userId}/commitments/{commitmentId}. Redirecting to Dashboard...");
-    setTimerStatus("idle");
-    router.push("/dashboard");
+  const handleCompleteTask = async () => {
+    if (!params.id) return;
+    try {
+      const effortHours = (sessionIndex * 25) / 60;
+      await updateCommitment(params.id, {
+        status: "completed",
+        completedAt: serverTimestamp() as any,
+        actualEffortHours: effortHours,
+        completionPercentage: 100,
+      } as any);
+      setTimerStatus("idle");
+      router.push("/dashboard");
+    } catch (err) {
+      console.error("Failed to mark task as completed:", err);
+    }
   };
 
   const fastForward = () => {
@@ -125,9 +177,32 @@ export default function FocusModePage({ params }: { params: { id: string } }) {
   const commitment = commitments.find((c) => c.id === params.id);
   const commitmentTitle = commitment?.title || "OS Memory Allocator Assignment";
 
+  const showSkeleton = !user || commitmentsLoading;
+
+  if (showSkeleton) {
+    return (
+      <div className="min-h-screen bg-background relative flex flex-col items-center justify-between py-8 px-6 overflow-hidden font-sans">
+        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[300px] h-[300px] bg-primary/4 dark:bg-primary/8 rounded-full blur-[80px] pointer-events-none" />
+        <header className="w-full max-w-[480px] flex items-center justify-between z-10 flex-shrink-0">
+          <div className="h-5 w-12 bg-surface-container animate-pulse rounded" />
+          <div className="h-5 w-32 bg-surface-container animate-pulse rounded" />
+          <div className="h-6 w-14 bg-surface-container animate-pulse rounded" />
+        </header>
+        <main className="flex-1 flex flex-col items-center justify-center z-10 my-8">
+          <div className="w-[240px] h-[240px] rounded-full border-4 border-dashed border-outline-variant/30 animate-spin flex items-center justify-center">
+            <div className="h-10 w-24 bg-surface-container animate-pulse rounded" />
+          </div>
+        </main>
+        <footer className="w-full max-w-[480px] flex flex-col items-center gap-6 z-10 flex-shrink-0">
+          <div className="h-12 w-32 bg-surface-container animate-pulse rounded-full" />
+        </footer>
+      </div>
+    );
+  }
+
   const totalDuration = isBreak ? breakMinutes * 60 : focusMinutes * 60;
   const elapsedSeconds = totalDuration - secondsRemaining;
-  const elapsedProgress = elapsedSeconds / totalDuration;
+  const elapsedProgress = progressPercentage / 100;
 
   // SVG parameters
   const radius = 100;
@@ -216,7 +291,7 @@ export default function FocusModePage({ params }: { params: { id: string } }) {
               {formatTime(secondsRemaining)}
             </span>
             <span className="text-[12px] font-semibold font-label text-outline uppercase tracking-widest mt-1">
-              {isBreak ? "Break Time" : "Focus Session"}
+              {isBreak ? "Break Time" : `${progressPercentage}% Done`}
             </span>
           </div>
         </div>

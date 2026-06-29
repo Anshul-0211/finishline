@@ -170,16 +170,16 @@ export async function assembleCoreContext(userId: string): Promise<CoreLifeConte
       id: c.id,
       title: c.title,
       domain: c.domain,
-      deadline: c.deadline instanceof Date 
-        ? c.deadline.toISOString() 
-        : (c.deadline?.toDate?.() ? c.deadline.toDate().toISOString() : c.deadline || now),
+      deadline: (c.deadline as any) instanceof Date 
+        ? (c.deadline as any).toISOString() 
+        : ((c.deadline as any)?.toDate?.() ? (c.deadline as any).toDate().toISOString() : (c.deadline as any) || now),
       riskScore: c.riskScore || 0,
       riskTrend: c.riskTrend || 'stable',
       completionPercentage: c.completionPercentage || 0,
       remainingEffortHours: (c.adjustedEffortHours || c.effortEstimateHours || 0) * (1 - (c.completionPercentage || 0) / 100),
-      scheduledBlocks: (c.scheduledBlocks || []).map((b: Commitment['scheduledBlocks'][number]) => ({
-        start: b.start?.toDate?.() ? b.start.toDate().toISOString() : b.start,
-        end: b.end?.toDate?.() ? b.end.toDate().toISOString() : b.end,
+      scheduledBlocks: (c.scheduledBlocks || []).map((b: any) => ({
+        start: (b.start as any)?.toDate?.() ? (b.start as any).toDate().toISOString() : (b.start as any),
+        end: (b.end as any)?.toDate?.() ? (b.end as any).toDate().toISOString() : (b.end as any),
         calendarEventId: b.calendarEventId,
       })),
     })),
@@ -189,10 +189,10 @@ export async function assembleCoreContext(userId: string): Promise<CoreLifeConte
     _meta: {
       calendarFetchedAt: calendarSlots._fetchedAt || now,
       commitmentsSyncedAt: now,
-      stressScoreComputedAt: user.stats?.stressScoreComputedAt?.toDate?.() 
-        ? user.stats.stressScoreComputedAt.toDate().toISOString() 
-        : (user.stats?.stressScoreComputedAt instanceof Date 
-          ? user.stats.stressScoreComputedAt.toISOString() 
+      stressScoreComputedAt: (user.stats?.stressScoreComputedAt as any)?.toDate?.() 
+        ? (user.stats.stressScoreComputedAt as any).toDate().toISOString() 
+        : ((user.stats?.stressScoreComputedAt as any) instanceof Date 
+          ? (user.stats.stressScoreComputedAt as any).toISOString() 
           : now),
       contextAssembledAt: now,
     },
@@ -254,9 +254,9 @@ async function getLongTermGoals(userId: string) {
       id: doc.id,
       title: c.title,
       domain: c.domain,
-      lastResurfacedAt: c.lastResurfacedAt?.toDate?.() 
-        ? c.lastResurfacedAt.toDate().toISOString() 
-        : c.lastResurfacedAt || null,
+      lastResurfacedAt: (c.lastResurfacedAt as any)?.toDate?.() 
+        ? (c.lastResurfacedAt as any).toDate().toISOString() 
+        : (c.lastResurfacedAt as any) || null,
     };
   });
 }
@@ -300,14 +300,14 @@ export async function assembleExtendedContext(userId: string): Promise<ExtendedL
     longestStreak: user.stats?.longestStreak || 0,
     _meta: {
       ...core._meta,
-      reflectionGeneratedAt: user.lastReflectionGeneratedAt?.toDate?.()
-        ? user.lastReflectionGeneratedAt.toDate().toISOString()
+      reflectionGeneratedAt: (user.lastReflectionGeneratedAt as any)?.toDate?.()
+        ? (user.lastReflectionGeneratedAt as any).toDate().toISOString()
         : null,
-      longTermGoalsReviewedAt: user.longTermGoalsReviewedAt?.toDate?.()
-        ? user.longTermGoalsReviewedAt.toDate().toISOString()
+      longTermGoalsReviewedAt: (user.longTermGoalsReviewedAt as any)?.toDate?.()
+        ? (user.longTermGoalsReviewedAt as any).toDate().toISOString()
         : null,
-      learningCoefficientsUpdatedAt: user.learningCoefficients?.lastUpdated?.toDate?.()
-        ? user.learningCoefficients.lastUpdated.toDate().toISOString()
+      learningCoefficientsUpdatedAt: (user.learningCoefficients?.lastUpdated as any)?.toDate?.()
+        ? (user.learningCoefficients.lastUpdated as any).toDate().toISOString()
         : new Date().toISOString(),
     },
   };

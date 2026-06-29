@@ -120,6 +120,22 @@ ${isArraySchema ? 'Return a JSON array of objects.' : 'Ensure that your JSON obj
   return params.schema.parse(parsed);
 }
 
+function isRateLimitError(err: any): boolean {
+  if (!err) return false;
+  const status = err.status || err.statusCode;
+  if (status === 429) return true;
+  
+  const msg = err.message || '';
+  if (typeof msg === 'string') {
+    const lowercaseMsg = msg.toLowerCase();
+    return lowercaseMsg.includes('429') || 
+           lowercaseMsg.includes('resource_exhausted') || 
+           lowercaseMsg.includes('quota exceeded') ||
+           lowercaseMsg.includes('rate limit');
+  }
+  return false;
+}
+
 export async function callGemini<T>(params: {
   systemInstruction: string;
   prompt: string;
@@ -155,35 +171,58 @@ ${JSON.stringify(jsonSchema)}
 Ensure that your ${jsonType} has EXACTLY the structure defined in the schema above.
 ${isArraySchema ? 'Return a JSON array of objects.' : 'Ensure that your JSON object has EXACTLY the keys defined in the schema above.\nFor example, if the schema lists "reply" as a property/key, your output JSON must have a key named "reply" (NOT "message" or "text").'} Do not add any markdown blocks or outside text.`;
 
+  const maxRetries = 3;
+  const initialDelayMs = 1000;
+  const backoffFactor = 2;
+
   try {
-    const useVertex = process.env.GOOGLE_GENAI_USE_VERTEXAI === 'true';
-    const ai = getGeminiClient();
-    const config: any = {
-      systemInstruction: systemInstruction + schemaInstruction,
-      responseMimeType: 'application/json',
-      temperature,
-    };
-    if (useVertex) {
-      config.responseSchema = toOpenApiSchema(rawSchema);
-    } else {
-      config.responseSchema = jsonSchema as any;
+    for (let attempt = 1; attempt <= maxRetries + 1; attempt++) {
+      try {
+        const useVertex = process.env.GOOGLE_GENAI_USE_VERTEXAI === 'true';
+        const ai = getGeminiClient();
+        const config: any = {
+          systemInstruction: systemInstruction + schemaInstruction,
+          responseMimeType: 'application/json',
+          temperature,
+        };
+        if (useVertex) {
+          config.responseSchema = toOpenApiSchema(rawSchema);
+        } else {
+          config.responseSchema = jsonSchema as any;
+        }
+
+        const response = await ai.models.generateContent({
+          model,
+          contents: [{ role: 'user', parts: [{ text: prompt }] }],
+          config,
+        });
+
+        const text = response.candidates?.[0]?.content?.parts?.[0]?.text;
+        if (!text) {
+          throw new Error("No response candidates returned from Gemini");
+        }
+
+        console.log("[Gemini] Raw response text:", text);
+
+        const parsed = JSON.parse(text);
+        return schema.parse(parsed);
+      } catch (err) {
+        const isRateLimit = isRateLimitError(err);
+        
+        if (isRateLimit && attempt <= maxRetries) {
+          const backoff = initialDelayMs * Math.pow(backoffFactor, attempt - 1);
+          const jitter = Math.floor(Math.random() * 200) + 100;
+          const delay = backoff + jitter;
+          
+          console.warn(`[Gemini] Rate limited (429). Retrying in ${delay}ms... (Attempt ${attempt} of ${maxRetries})`);
+          await new Promise((resolve) => setTimeout(resolve, delay));
+          continue;
+        }
+        
+        throw err;
+      }
     }
-
-    const response = await ai.models.generateContent({
-      model,
-      contents: [{ role: 'user', parts: [{ text: prompt }] }],
-      config,
-    });
-
-    const text = response.candidates?.[0]?.content?.parts?.[0]?.text;
-    if (!text) {
-      throw new Error("No response candidates returned from Gemini");
-    }
-
-    console.log("[Gemini] Raw response text:", text);
-
-    const parsed = JSON.parse(text);
-    return schema.parse(parsed);
+    throw new Error("Failed to get response after maximum retries");
   } catch (err) {
     console.error(`[Gemini] ${endpointType} failed. Falling back to Groq. Error:`, err);
     return callGroqFallback({ systemInstruction, prompt, schema });

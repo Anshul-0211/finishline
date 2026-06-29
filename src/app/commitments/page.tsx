@@ -6,58 +6,34 @@ import { onAuthStateChanged } from "firebase/auth";
 import { ArrowLeft } from "lucide-react";
 import { auth } from "@/lib/firebase/client";
 import { useUserStore } from "@/lib/stores/useUserStore";
+import { useCommitmentsStore } from "@/lib/stores/useCommitmentsStore";
 import { NavShell } from "@/components/nav-shell";
 import { CommitmentCard } from "@/components/commitment-card";
 
 export default function CommitmentsPage() {
   const router = useRouter();
-  const { user, userProfile } = useUserStore();
+  const { user, setUser, userProfile } = useUserStore();
+  const { commitments, subscribeToCommitments } = useCommitmentsStore();
 
   // Auth Guard
   useEffect(() => {
     const unsubscribeAuth = onAuthStateChanged(auth, (firebaseUser) => {
       if (!firebaseUser) {
+        setUser(null);
         router.push("/");
+      } else {
+        setUser(firebaseUser);
       }
     });
     return () => unsubscribeAuth();
-  }, [router]);
+  }, [router, setUser]);
 
-  const mockCommitments = [
-    {
-      id: "evt-1",
-      title: "OS Assignment Prep Block",
-      domain: "academic" as const,
-      status: "active" as const,
-      priority: "critical" as const,
-      deadline: new Date(Date.now() + 86400000 * 3).toISOString(),
-      completionPercentage: 35,
-      riskScore: 82,
-      riskTrend: "stable" as const,
-    },
-    {
-      id: "evt-2",
-      title: "Sarah's Birthday Celebration",
-      domain: "social" as const,
-      status: "active" as const,
-      priority: "medium" as const,
-      deadline: new Date(Date.now() + 86400000 * 2).toISOString(),
-      completionPercentage: 100,
-      riskScore: 15,
-      riskTrend: "stable" as const,
-    },
-    {
-      id: "evt-3",
-      title: "Mock Interview Recruiter session",
-      domain: "work" as const,
-      status: "active" as const,
-      priority: "high" as const,
-      deadline: new Date(Date.now() + 86400000 * 4).toISOString(),
-      completionPercentage: 0,
-      riskScore: 45,
-      riskTrend: "stable" as const,
-    }
-  ];
+  // Firestore Commitments Subscription
+  useEffect(() => {
+    if (!user) return;
+    const unsubscribe = subscribeToCommitments(user.uid);
+    return () => unsubscribe();
+  }, [user, subscribeToCommitments]);
 
   const displayName = userProfile?.displayName || user?.displayName || "User";
 
@@ -81,20 +57,28 @@ export default function CommitmentsPage() {
 
         {/* Commitment Cards Stack */}
         <div className="flex flex-col gap-4">
-          {mockCommitments.map((commitment) => (
-            <CommitmentCard
-              key={commitment.id}
-              id={commitment.id}
-              title={commitment.title}
-              domain={commitment.domain}
-              status={commitment.status}
-              priority={commitment.priority}
-              deadline={commitment.deadline}
-              completionPercentage={commitment.completionPercentage}
-              riskScore={commitment.riskScore}
-              riskTrend={commitment.riskTrend}
-            />
-          ))}
+          {commitments.length === 0 ? (
+            <div className="text-center py-12 text-on-surface-variant font-label text-sm">
+              No commitments found. Add one to get started!
+            </div>
+          ) : (
+            commitments.map((commitment) => (
+              <CommitmentCard
+                key={commitment.id}
+                id={commitment.id}
+                title={commitment.title}
+                domain={commitment.domain}
+                status={["active", "completed", "missed", "deferred"].includes(commitment.status) ? (commitment.status as any) : "active"}
+                priority={commitment.priority || "medium"}
+                deadline={typeof commitment.deadline === "string" ? commitment.deadline : (commitment.deadline as any)?.toISOString?.() || ""}
+                completionPercentage={commitment.completionPercentage}
+                riskScore={commitment.riskScore || 0}
+                riskTrend={commitment.riskTrend || "stable"}
+                onFocusClick={() => router.push(`/focus/${commitment.id}`)}
+                onWhyClick={() => router.push("/dashboard")}
+              />
+            ))
+          )}
         </div>
 
       </div>

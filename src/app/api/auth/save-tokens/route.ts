@@ -1,91 +1,52 @@
 import { NextRequest, NextResponse } from "next/server";
-import { adminDb } from "@/lib/firebase/admin";
+import { adminDb, adminAuth } from "@/lib/firebaseAdmin";
 import { encrypt } from "@/lib/auth/tokenEncryption";
-import { Timestamp } from "firebase-admin/firestore";
 
 export async function POST(req: NextRequest) {
   try {
+    const authHeader = req.headers.get("Authorization");
+    const idToken = authHeader?.replace("Bearer ", "");
+    if (!idToken) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
     const body = await req.json();
-    const {
-      uid,
-      email,
-      displayName,
-      photoURL,
-      accessToken,
-      refreshToken,
-      tokenExpiry,
-    } = body;
+    const { userId, calendarRefreshToken, gmailRefreshToken, email, displayName, photoURL } = body;
 
-    if (!uid) {
-      return NextResponse.json({ error: "Missing uid" }, { status: 400 });
+    if (!userId) {
+      return NextResponse.json({ error: "userId required" }, { status: 400 });
     }
 
-    const encryptedAccessToken = accessToken ? encrypt(accessToken) : "";
-    const encryptedRefreshToken = refreshToken ? encrypt(refreshToken) : "";
-
-    let expiryTimestamp: Timestamp;
-    if (tokenExpiry) {
-      const ms = typeof tokenExpiry === "number" && tokenExpiry < 1000000000000
-        ? tokenExpiry * 1000
-        : tokenExpiry;
-      expiryTimestamp = Timestamp.fromMillis(ms);
-    } else {
-      expiryTimestamp = Timestamp.fromMillis(Date.now() + 3600 * 1000);
+    // Verify ownership: Firebase ID token matching userId
+    const decoded = await adminAuth.verifyIdToken(idToken);
+    if (decoded.uid !== userId) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
-    const userRef = adminDb.collection("users").doc(uid);
-    const userDoc = await userRef.get();
-    const now = Timestamp.now();
-
-    const userData: any = {
-      uid,
-      email: email || "",
-      displayName: displayName || "",
-      photoURL: photoURL || "",
-      lastActiveAt: now,
-      updatedAt: now,
-    };
-
-    if (encryptedAccessToken) {
-      userData.googleAccessToken = encryptedAccessToken;
-      userData.tokenExpiry = expiryTimestamp;
+    const updates: Record<string, any> = {};
+    if (calendarRefreshToken !== undefined) {
+      updates.googleCalendarRefreshToken = encrypt(calendarRefreshToken);
     }
-    if (encryptedRefreshToken) {
-      userData.googleRefreshToken = encryptedRefreshToken;
+    if (gmailRefreshToken !== undefined) {
+      updates.googleGmailRefreshToken = encrypt(gmailRefreshToken);
+    }
+    if (email) {
+      updates.email = email;
+    }
+    if (displayName) {
+      updates.displayName = displayName;
+    }
+    if (photoURL) {
+      updates.photoURL = photoURL;
     }
 
-    if (!userDoc.exists) {
-      userData.createdAt = now;
-      userData.preferences = {
-        defaultDomain: "personal",
-        workingHours: { start: 9, end: 18 },
-        theme: "system",
-        notificationsEnabled: true,
-        fcmToken: "",
-      };
-      userData.learningCoefficients = {
-        underestimationFactor: 1.0,
-        preferredWorkHours: [9, 10, 14, 15, 20, 21],
-        avgProcrastinationBuffer: 2.0,
-        lastUpdated: now,
-      };
-      userData.stats = {
-        totalCommitmentsCreated: 0,
-        totalCompleted: 0,
-        totalMissed: 0,
-        currentStreak: 0,
-        longestStreak: 0,
-        stressScore: 0,
-        stressScoreComputedAt: now,
-      };
-      await userRef.set(userData);
-    } else {
-      await userRef.update(userData);
-    }
-
-    return NextResponse.json({ success: true });
+    await adminDb.collection("users").doc(userId).set(updates, { merge: true });
+    
+    return NextResponse.json({ status: "saved" });
   } catch (error: any) {
-    console.error("Error in save-tokens:", error);
-    return NextResponse.json({ error: error.message || "Internal server error" }, { status: 500 });
+    console.error("Error in save-tokens POST:", error.message);
+    return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });
   }
 }
+
+export const dynamic = "force-dynamic";

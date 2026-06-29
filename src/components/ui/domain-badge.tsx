@@ -16,8 +16,9 @@ const DOMAIN_STYLES: Record<DomainType, string> = {
 };
 
 export const DomainBadge: React.FC<DomainBadgeProps> = ({ domain }) => {
-  const displayLabel = domain.charAt(0).toUpperCase() + domain.slice(1);
-  const colorClass = DOMAIN_STYLES[domain] || "";
+  const safeDomain = domain || "work";
+  const displayLabel = safeDomain.charAt(0).toUpperCase() + safeDomain.slice(1);
+  const colorClass = DOMAIN_STYLES[safeDomain] || "text-outline bg-outline/10";
 
   return (
     <span

@@ -69,7 +69,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       throw err;
     }
 
-    const suggestions: GmailSuggestion[] = [];
+    const suggestions: any[] = [];
     const today = new Date().toISOString().split("T")[0]; // YYYY-MM-DD
 
     console.log(`[Gmail Scan] Running AI classification for ${emails.length} emails...`);
@@ -90,7 +90,11 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         // Confidence Gate: Filter out low confidence classifications (< 0.40)
         // Commitment Gate: Only return emails classified as having a commitment
         if (parsed.hasCommitment && parsed.confidence >= 0.40) {
-          suggestions.push(parsed);
+          suggestions.push({
+            ...parsed,
+            sender: email.from || "Unknown sender",
+            subject: email.subject || "(no subject)",
+          });
         }
       } catch (err: any) {
         console.error(`[Gmail Scan] Failed to classify message ID: ${email.id}. Error:`, err.message);

@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { Commitment } from "@/lib/types";
+import { Commitment, firestoreToCommitment } from "@/lib/types/commitment";
 import { db } from "@/lib/firebase/client";
 import {
   collection,
@@ -9,78 +9,41 @@ import {
   Unsubscribe,
 } from "firebase/firestore";
 
-interface CommitmentsState {
+interface CommitmentsStoreState {
   commitments: Commitment[];
   loading: boolean;
   error: string | null;
 
-  setCommitments: (commitments: Commitment[]) => void;
-  addCommitment: (commitment: Commitment) => void;
-  updateCommitment: (id: string, updates: Partial<Commitment>) => void;
-  deleteCommitment: (id: string) => void;
-  setLoading: (loading: boolean) => void;
-  setError: (error: string | null) => void;
-
-  /**
-   * Opens a real-time Firestore onSnapshot listener for users/{userId}/commitments.
-   * Streams all commitment updates live into the store.
-   * Returns the unsubscribe function so callers can tear it down on unmount/logout.
-   *
-   * Safe to call multiple times — call the returned unsubscribe before re-subscribing
-   * to avoid duplicate listeners.
-   */
   subscribeToCommitments: (userId: string) => Unsubscribe;
+  clearCommitments: () => void;
+  updateCommitmentOptimistic: (id: string, fields: Partial<Commitment>) => void;
 }
 
-export const useCommitmentsStore = create<CommitmentsState>((set) => ({
+export const useCommitmentsStore = create<CommitmentsStoreState>((set) => ({
   commitments: [],
   loading: false,
   error: null,
 
-  setCommitments: (commitments) => set({ commitments }),
-
-  addCommitment: (commitment) =>
-    set((state) => ({ commitments: [commitment, ...state.commitments] })),
-
-  updateCommitment: (id, updates) =>
-    set((state) => ({
-      commitments: state.commitments.map((c) =>
-        c.id === id ? { ...c, ...updates } : c
-      ),
-    })),
-
-  deleteCommitment: (id) =>
-    set((state) => ({
-      commitments: state.commitments.filter((c) => c.id !== id),
-    })),
-
-  setLoading: (loading) => set({ loading }),
-  setError: (error) => set({ error }),
-
   subscribeToCommitments: (userId: string): Unsubscribe => {
     set({ loading: true, error: null });
 
-    const commitmentsRef = collection(
-      db,
-      "users",
-      userId,
-      "commitments"
-    );
-
-    // Order by createdAt descending so newest commitments appear first
+    const commitmentsRef = collection(db, "users", userId, "commitments");
     const q = query(commitmentsRef, orderBy("createdAt", "desc"));
 
     const unsubscribe = onSnapshot(
       q,
       (snapshot) => {
-        const commitments: Commitment[] = snapshot.docs.map((doc) => ({
-          id: doc.id,
-          ...(doc.data() as Omit<Commitment, "id">),
-        }));
-        set({ commitments, loading: false, error: null });
+        try {
+          const list: Commitment[] = snapshot.docs.map((doc) =>
+            firestoreToCommitment(doc)
+          );
+          set({ commitments: list, loading: false, error: null });
+        } catch (err: any) {
+          console.error("[useCommitmentsStore] Mapping error:", err);
+          set({ error: err.message || "Failed to parse commitments", loading: false });
+        }
       },
       (err) => {
-        // Firestore permission denied on logout — silence it gracefully
         if (err.code === "permission-denied") {
           set({ loading: false });
           return;
@@ -92,5 +55,16 @@ export const useCommitmentsStore = create<CommitmentsState>((set) => ({
 
     return unsubscribe;
   },
-}));
 
+  clearCommitments: () => {
+    set({ commitments: [], loading: false, error: null });
+  },
+
+  updateCommitmentOptimistic: (id: string, fields: Partial<Commitment>) => {
+    set((state) => ({
+      commitments: state.commitments.map((c) =>
+        c.id === id ? { ...c, ...fields } : c
+      ),
+    }));
+  },
+}));

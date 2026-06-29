@@ -2,18 +2,20 @@
 
 import React, { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { onAuthStateChanged } from "firebase/auth";
+import { onAuthStateChanged, GoogleAuthProvider, signInWithPopup, signOut } from "firebase/auth";
 import { Clock, ChevronDown, Calendar, Mail, ArrowLeft } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
-import { auth } from "@/lib/firebase/client";
+import { auth, getFcmMessaging } from "@/lib/firebase";
 import { useUserStore } from "@/lib/stores/useUserStore";
 import { NavShell } from "@/components/nav-shell";
 import { ThemeToggle } from "@/components/ui/theme-toggle";
 import { PillButton } from "@/components/ui/pill-button";
+import { updateUser, getUser } from "@/lib/firestore";
+import { getToken, deleteToken } from "firebase/messaging";
 
 export default function SettingsPage() {
   const router = useRouter();
-  const { user, userProfile, logout } = useUserStore();
+  const { user, setUser, userProfile, subscribeToUserProfile } = useUserStore();
 
   // Settings State Hooks
   const [startTime, setStartTime] = useState("09:00");
@@ -22,35 +24,240 @@ export default function SettingsPage() {
   const [savedEnd, setSavedEnd] = useState("17:00");
   
   const [pushEnabled, setPushEnabled] = useState(false);
-  const [calendarConnected, setCalendarConnected] = useState(true);
+  const [calendarConnected, setCalendarConnected] = useState(false);
   const [gmailConnected, setGmailConnected] = useState(false);
 
   const [showToast, setShowToast] = useState(false);
+
+  // Load User Preferences On Mount / Auth State
+  useEffect(() => {
+    const loadProfile = async () => {
+      if (!user?.uid) return;
+      try {
+        const profile = await getUser(user.uid);
+        const startVal = profile.preferences?.workingHours?.start ?? 9;
+        const endVal = profile.preferences?.workingHours?.end ?? 18;
+        
+        const formatTime = (h: number) => `${String(h).padStart(2, "0")}:00`;
+        
+        setStartTime(formatTime(startVal));
+        setEndTime(formatTime(endVal));
+        setSavedStart(formatTime(startVal));
+        setSavedEnd(formatTime(endVal));
+      } catch (err) {
+        console.error("Failed to load user profile in settings:", err);
+      }
+    };
+    loadProfile();
+  }, [user]);
+
+  // Live profile listener for settings connections and push status
+  useEffect(() => {
+    if (!user) return;
+    const unsub = subscribeToUserProfile(user.uid);
+    return () => {
+      if (unsub) unsub();
+    };
+  }, [user, subscribeToUserProfile]);
+
+  // Sync state variables with the userProfile store value dynamically
+  useEffect(() => {
+    if (userProfile) {
+      setCalendarConnected(!!(userProfile.googleCalendarRefreshToken || userProfile.googleRefreshToken));
+      setGmailConnected(!!(userProfile.googleGmailRefreshToken || userProfile.googleRefreshToken));
+      setPushEnabled(!!userProfile.fcmToken);
+    }
+  }, [userProfile]);
 
   // Auth Guard
   useEffect(() => {
     const unsubscribeAuth = onAuthStateChanged(auth, (firebaseUser) => {
       if (!firebaseUser) {
+        setUser(null);
         router.push("/");
+      } else {
+        setUser(firebaseUser);
       }
     });
     return () => unsubscribeAuth();
-  }, [router]);
+  }, [router, setUser]);
 
   const handleSignOut = async () => {
     try {
-      await logout();
+      await signOut(auth);
+      setUser(null);
       router.push("/");
     } catch (err) {
       console.error("Signout error:", err);
     }
   };
 
-  const handleSaveHours = () => {
-    setSavedStart(startTime);
-    setSavedEnd(endTime);
-    setShowToast(true);
-    setTimeout(() => setShowToast(false), 2500);
+  const handleSaveHours = async () => {
+    if (!user?.uid) return;
+    try {
+      const startNum = parseInt(startTime.split(":")[0], 10);
+      const endNum = parseInt(endTime.split(":")[0], 10);
+      await updateUser(user.uid, {
+        "preferences.workingHours": { start: startNum, end: endNum }
+      } as any);
+      setSavedStart(startTime);
+      setSavedEnd(endTime);
+      setShowToast(true);
+      setTimeout(() => setShowToast(false), 2500);
+    } catch (err) {
+      console.error("Failed to save working hours:", err);
+    }
+  };
+
+  const handleToggleNotifications = async (enabled: boolean) => {
+    if (!user?.uid) return;
+    try {
+      const messaging = await getFcmMessaging();
+      if (!messaging) {
+        console.warn("FCM messaging not supported or permission denied.");
+        setPushEnabled(false);
+        return;
+      }
+      if (enabled) {
+        const permission = await Notification.requestPermission();
+        if (permission !== "granted") {
+          console.warn("Notification permission was not granted.");
+          setPushEnabled(false);
+          return;
+        }
+        let registration;
+        if (typeof window !== "undefined" && "serviceWorker" in navigator) {
+          const configParams = new URLSearchParams({
+            apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY || "",
+            authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN || "",
+            projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID || "",
+            storageBucket: process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET || "",
+            messagingSenderId: process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID || "",
+            appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID || "",
+          }).toString();
+
+          registration = await navigator.serviceWorker.register(
+            `/firebase-messaging-sw.js?${configParams}`
+          );
+        }
+
+        const token = await getToken(messaging, {
+          vapidKey: process.env.NEXT_PUBLIC_FIREBASE_VAPID_KEY,
+          serviceWorkerRegistration: registration
+        });
+        await updateUser(user.uid, { fcmToken: token });
+        setPushEnabled(true);
+      } else {
+        await deleteToken(messaging);
+        await updateUser(user.uid, { fcmToken: "" });
+        setPushEnabled(false);
+      }
+    } catch (err) {
+      console.error("FCM toggle failed:", err);
+      setPushEnabled(!enabled);
+    }
+  };
+
+  const handleConnectCalendar = async () => {
+    if (!user?.uid) return;
+    try {
+      const provider = new GoogleAuthProvider();
+      provider.addScope("https://www.googleapis.com/auth/calendar");
+      provider.setCustomParameters({ access_type: "offline", prompt: "consent" });
+
+      const result = await signInWithPopup(auth, provider);
+      const credential = GoogleAuthProvider.credentialFromResult(result);
+      const idToken = await result.user.getIdToken();
+
+      const response = await fetch("/api/auth/save-tokens", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${idToken}`,
+        },
+        body: JSON.stringify({
+          userId: user.uid,
+          calendarRefreshToken: credential?.accessToken,
+        }),
+      });
+
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      setCalendarConnected(true);
+    } catch (err) {
+      console.error("Google Calendar connection failed:", err);
+    }
+  };
+
+  const handleDisconnectCalendar = async () => {
+    if (!user?.uid) return;
+    try {
+      const idToken = await auth.currentUser?.getIdToken();
+      await fetch("/api/auth/save-tokens", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${idToken}`,
+        },
+        body: JSON.stringify({
+          userId: user.uid,
+          calendarRefreshToken: "",
+        }),
+      });
+      setCalendarConnected(false);
+    } catch (err) {
+      console.error("Google Calendar disconnect failed:", err);
+    }
+  };
+
+  const handleConnectGmail = async () => {
+    if (!user?.uid) return;
+    try {
+      const provider = new GoogleAuthProvider();
+      provider.addScope("https://www.googleapis.com/auth/gmail.readonly");
+      provider.setCustomParameters({ access_type: "offline", prompt: "consent" });
+
+      const result = await signInWithPopup(auth, provider);
+      const credential = GoogleAuthProvider.credentialFromResult(result);
+      const idToken = await result.user.getIdToken();
+
+      const response = await fetch("/api/auth/save-tokens", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${idToken}`,
+        },
+        body: JSON.stringify({
+          userId: user.uid,
+          gmailRefreshToken: credential?.accessToken,
+        }),
+      });
+
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      setGmailConnected(true);
+    } catch (err) {
+      console.error("Gmail connection failed:", err);
+    }
+  };
+
+  const handleDisconnectGmail = async () => {
+    if (!user?.uid) return;
+    try {
+      const idToken = await auth.currentUser?.getIdToken();
+      await fetch("/api/auth/save-tokens", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${idToken}`,
+        },
+        body: JSON.stringify({
+          userId: user.uid,
+          gmailRefreshToken: "",
+        }),
+      });
+      setGmailConnected(false);
+    } catch (err) {
+      console.error("Gmail disconnect failed:", err);
+    }
   };
 
   const displayName = userProfile?.displayName || user?.displayName || "User";
@@ -209,16 +416,9 @@ export default function SettingsPage() {
                 </span>
               </div>
 
-              {/* Framer Motion premium Switch */}
+              {/* Switch */}
               <button
-                onClick={() => {
-                  setPushEnabled(!pushEnabled);
-                  // INTENDED FIRESTORE/FCM USECASE:
-                  // 1. Check browser serviceWorker support.
-                  // 2. Call Firebase Messaging client SDK `getToken(messaging, { vapidKey })`.
-                  // 3. Perform a write query to the Firestore backend saving this push device token:
-                  //    await updateDoc(doc(db, "users", userId), { fcmDeviceToken: token, pushNotificationsEnabled: true });
-                }}
+                onClick={() => handleToggleNotifications(!pushEnabled)}
                 className={`w-11 h-6 rounded-full relative transition-colors duration-200 outline-none flex items-center flex-shrink-0 cursor-pointer
                   ${pushEnabled ? "bg-primary" : "bg-surface-dim"}`}
                 aria-label="Toggle Push Notifications"
@@ -253,11 +453,11 @@ export default function SettingsPage() {
               <div className="flex items-center gap-3">
                 {calendarConnected ? (
                   <>
-                    <span className="px-2.5 py-1 rounded-full text-[11px] font-bold font-label text-tertiary bg-tertiary/10 shadow-sm select-none">
+                    <span className="px-2.5 py-1 rounded-full text-[11px] font-bold font-label text-emerald-600 bg-emerald-500/10 dark:text-emerald-400 dark:bg-emerald-950/20 shadow-sm select-none">
                       Connected
                     </span>
                     <button
-                      onClick={() => setCalendarConnected(false)}
+                      onClick={handleDisconnectCalendar}
                       className="text-[13px] font-bold text-outline hover:text-on-surface transition-colors outline-none focus-visible:underline"
                     >
                       Disconnect
@@ -265,12 +465,12 @@ export default function SettingsPage() {
                   </>
                 ) : (
                   <>
-                    <span className="px-2.5 py-1 rounded-full text-[11px] font-bold font-label text-error bg-error/10 shadow-sm select-none">
-                      Not connected
+                    <span className="px-2.5 py-1 rounded-full text-[11px] font-bold font-label text-amber-600 bg-amber-500/10 dark:text-amber-400 dark:bg-amber-950/20 shadow-sm select-none">
+                      Disconnected
                     </span>
                     <PillButton
                       variant="primary"
-                      onClick={() => setCalendarConnected(true)}
+                      onClick={handleConnectCalendar}
                       className="h-8 text-xs font-semibold px-4"
                     >
                       Connect
@@ -292,11 +492,11 @@ export default function SettingsPage() {
               <div className="flex items-center gap-3">
                 {gmailConnected ? (
                   <>
-                    <span className="px-2.5 py-1 rounded-full text-[11px] font-bold font-label text-tertiary bg-tertiary/10 shadow-sm select-none">
+                    <span className="px-2.5 py-1 rounded-full text-[11px] font-bold font-label text-emerald-600 bg-emerald-500/10 dark:text-emerald-400 dark:bg-emerald-950/20 shadow-sm select-none">
                       Connected
                     </span>
                     <button
-                      onClick={() => setGmailConnected(false)}
+                      onClick={handleDisconnectGmail}
                       className="text-[13px] font-bold text-outline hover:text-on-surface transition-colors outline-none focus-visible:underline"
                     >
                       Disconnect
@@ -304,12 +504,12 @@ export default function SettingsPage() {
                   </>
                 ) : (
                   <>
-                    <span className="px-2.5 py-1 rounded-full text-[11px] font-bold font-label text-error bg-error/10 shadow-sm select-none">
-                      Not connected
+                    <span className="px-2.5 py-1 rounded-full text-[11px] font-bold font-label text-amber-600 bg-amber-500/10 dark:text-amber-400 dark:bg-amber-950/20 shadow-sm select-none">
+                      Disconnected
                     </span>
                     <PillButton
                       variant="primary"
-                      onClick={() => setGmailConnected(true)}
+                      onClick={handleConnectGmail}
                       className="h-8 text-xs font-semibold px-4"
                     >
                       Connect

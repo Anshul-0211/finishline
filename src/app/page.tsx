@@ -1,12 +1,19 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { Flag, Loader2, Mail, Lock, AlertCircle } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
-import { useUserStore } from "@/lib/stores/useUserStore";
 import { PillButton } from "@/components/ui/pill-button";
 import { FADE_SLIDE } from "@/lib/motion";
+import { auth } from "@/lib/firebase";
+import { 
+  signInWithPopup, 
+  GoogleAuthProvider, 
+  createUserWithEmailAndPassword, 
+  signInWithEmailAndPassword, 
+  onAuthStateChanged 
+} from "firebase/auth";
 
 const GoogleIcon = () => (
   <svg className="w-5 h-5 mr-3 flex-shrink-0" viewBox="0 0 24 24">
@@ -30,7 +37,8 @@ const GoogleIcon = () => (
 );
 
 export default function Home() {
-  const { login, loginWithEmail, signUpWithEmail, loading, error, setError } = useUserStore();
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [showEmailForm, setShowEmailForm] = useState(false);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -38,13 +46,58 @@ export default function Home() {
 
   const router = useRouter();
 
+  useEffect(() => {
+    const unsub = onAuthStateChanged(auth, (user) => {
+      if (user) {
+        document.cookie = `session=${user.uid}; path=/; max-age=31536000; SameSite=Lax`;
+        router.push("/dashboard");
+      }
+    });
+    return () => unsub();
+  }, [router]);
+
   const handleGoogleSignIn = async () => {
+    setLoading(true);
     setError(null);
     try {
-      await login();
+      const provider = new GoogleAuthProvider();
+      provider.addScope("https://www.googleapis.com/auth/calendar");
+      provider.addScope("https://www.googleapis.com/auth/gmail.readonly");
+      
+      provider.setCustomParameters({
+        prompt: "consent",
+        access_type: "offline",
+      });
+
+      const result = await signInWithPopup(auth, provider);
+      const userObj = result.user;
+      const credential = GoogleAuthProvider.credentialFromResult(result);
+      const oauthToken = credential?.accessToken || "";
+      const idToken = await userObj.getIdToken();
+
+      await fetch("/api/auth/save-tokens", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${idToken}`,
+        },
+        body: JSON.stringify({
+          userId: userObj.uid,
+          email: userObj.email,
+          displayName: userObj.displayName,
+          photoURL: userObj.photoURL,
+          calendarRefreshToken: oauthToken,
+          gmailRefreshToken: oauthToken,
+        }),
+      });
+
+      document.cookie = `session=${userObj.uid}; path=/; max-age=31536000; SameSite=Lax`;
       router.push("/dashboard");
-    } catch (err: any) {
-      console.error("Google login failure:", err);
+    } catch (e: any) {
+      console.error(e);
+      setError(e.message ?? "Sign in failed. Please try again.");
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -54,16 +107,41 @@ export default function Home() {
       setError("Please fill in both email and password fields.");
       return;
     }
+    setLoading(true);
     setError(null);
     try {
+      let userObj;
       if (isSignUp) {
-        await signUpWithEmail(email, password, email.split("@")[0]);
+        const result = await createUserWithEmailAndPassword(auth, email, password);
+        userObj = result.user;
       } else {
-        await loginWithEmail(email, password);
+        const result = await signInWithEmailAndPassword(auth, email, password);
+        userObj = result.user;
       }
+
+      await fetch("/api/auth/save-tokens", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          uid: userObj.uid,
+          email: userObj.email,
+          displayName: userObj.displayName || email.split("@")[0],
+          photoURL: userObj.photoURL || "",
+          accessToken: "",
+          refreshToken: "",
+          tokenExpiry: null,
+        }),
+      });
+
+      document.cookie = `session=${userObj.uid}; path=/; max-age=31536000; SameSite=Lax`;
       router.push("/dashboard");
-    } catch (err: any) {
-      console.error("Email login failure:", err);
+    } catch (e: any) {
+      console.error(e);
+      setError(e.message ?? "Authentication failed.");
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -186,7 +264,7 @@ export default function Home() {
                 <button
                   type="button"
                   onClick={() => setIsSignUp(!isSignUp)}
-                  className="text-xs text-outline hover:text-on-surface-variant font-label font-semibold underline block mx-auto transition-colors"
+                  className="text-l text-outline hover:text-on-surface-variant font-label font-semibold underline block mx-auto transition-colors"
                 >
                   {isSignUp ? "Already have an account? Sign In" : "Need an account? Create Account"}
                 </button>
@@ -205,7 +283,7 @@ export default function Home() {
               className="bg-error-container border-l-[3px] border-error text-on-error-container px-4 py-3 rounded-lg text-[12px] font-semibold font-label flex items-start gap-2 text-left w-full shadow-sm"
             >
               <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
-              <span>{error}</span>
+              <span>Invalid Credentials.</span>
             </motion.div>
           )}
         </AnimatePresence>

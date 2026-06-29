@@ -285,7 +285,7 @@ A feature is complete only when:
 - [ ] Renegotiation check-in pre-staged to fire during demo
 - [ ] Hinglish input tested: "kal submission hai yaar"
 - [ ] Demo rehearsed minimum 5 times, timed at under 3 minutes
-- [ ] Submitted via BlockseBlock by 1:30 PM on 29 June 2026
+- [ ] Submitted via BlockseBlock by 1:30 PM on 30 June 2026
 
 ---
 
