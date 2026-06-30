@@ -31,6 +31,50 @@ export default function FocusModePage({ params }: { params: { id: string } }) {
   const [showEditModal, setShowEditModal] = useState(false);
   const [mounted, setMounted] = useState(false);
 
+  // Telemetry Logging States
+  const [startTime, setStartTime] = useState<string | null>(null);
+  const [accumulatedSeconds, setAccumulatedSeconds] = useState(0);
+  const [uninterruptedSeconds, setUninterruptedSeconds] = useState(0);
+
+  // Telemetry Dispatcher
+  const sendLogEvent = async (
+    type: 'start' | 'pause' | 'resume' | 'stop' | 'complete', 
+    termination: 'completed' | 'abandoned' | 'paused',
+    overrideAccumulated?: number,
+    overrideUninterrupted?: number
+  ) => {
+    if (!user || isBreak) return;
+    try {
+      const idToken = await user.getIdToken();
+      const currentStart = startTime || new Date().toISOString();
+      const now = new Date().toISOString();
+
+      const finalAccumulated = typeof overrideAccumulated === 'number' ? overrideAccumulated : accumulatedSeconds;
+      const finalUninterrupted = typeof overrideUninterrupted === 'number' ? overrideUninterrupted : uninterruptedSeconds;
+      const uninterruptedMinutes = Number((finalUninterrupted / 60).toFixed(2));
+
+      await fetch("/api/telemetry/log", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${idToken}`
+        },
+        body: JSON.stringify({
+          commitmentId: params.id,
+          eventType: type,
+          durationSeconds: finalAccumulated,
+          uninterruptedFocusMinutes: uninterruptedMinutes,
+          startTime: currentStart,
+          endTime: now,
+          terminationState: termination,
+          timestamp: now
+        })
+      });
+    } catch (err) {
+      console.warn("[Telemetry] Failed to log event:", err);
+    }
+  };
+
   useEffect(() => {
     setMounted(true);
   }, []);
@@ -96,6 +140,8 @@ export default function FocusModePage({ params }: { params: { id: string } }) {
           }
           return prev - 1;
         });
+        setAccumulatedSeconds((prev) => prev + 1);
+        setUninterruptedSeconds((prev) => prev + 1);
       }, 1000);
     } else {
       clearInterval(interval);
@@ -106,19 +152,39 @@ export default function FocusModePage({ params }: { params: { id: string } }) {
   const handleTimerComplete = () => {
     setTimerStatus("idle");
     setShowComplete(true);
+    sendLogEvent("complete", "completed");
+    setStartTime(null);
+    setAccumulatedSeconds(0);
+    setUninterruptedSeconds(0);
   };
 
   const handleStartPause = () => {
     if (timerStatus === "running") {
       setTimerStatus("paused");
+      sendLogEvent("pause", "paused");
     } else {
-      setTimerStatus("running");
+      if (timerStatus === "idle") {
+        const now = new Date().toISOString();
+        setStartTime(now);
+        setAccumulatedSeconds(0);
+        setUninterruptedSeconds(0);
+        setTimerStatus("running");
+        sendLogEvent("start", "paused", 0, 0);
+      } else if (timerStatus === "paused") {
+        setUninterruptedSeconds(0);
+        setTimerStatus("running");
+        sendLogEvent("resume", "paused", accumulatedSeconds, 0);
+      }
     }
   };
 
   const handleStop = () => {
     setTimerStatus("idle");
     setSecondsRemaining(isBreak ? breakMinutes * 60 : focusMinutes * 60);
+    sendLogEvent("stop", "abandoned");
+    setStartTime(null);
+    setAccumulatedSeconds(0);
+    setUninterruptedSeconds(0);
   };
 
   const handleLogProgress = async () => {

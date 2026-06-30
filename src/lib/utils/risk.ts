@@ -53,8 +53,18 @@ export function calculateRiskScore(commitment: Commitment, user: User): number {
   // If no time left: maximum risk
   if (remainingTimeHours <= 0) return 100;
 
-  const underestimationFactor = user.learningCoefficients?.underestimationFactor || 1.0;
-  const remainingEffort = (commitment.adjustedEffortHours || (commitment.effortEstimateHours * underestimationFactor) || 0) * (1 - (commitment.completionPercentage || 0) / 100);
+  const domainMultipliers = user.learningCoefficients?.domainEffortMultipliers || {};
+  const domainKey = commitment.domain;
+  const rawMultiplier = domainMultipliers[domainKey] !== undefined 
+    ? domainMultipliers[domainKey] 
+    : (user.learningCoefficients?.underestimationFactor || 1.0);
+  const multiplier = Math.max(0.5, Math.min(rawMultiplier, 2.0));
+  
+  const baseEffort = (commitment.adjustedEffortHours && commitment.adjustedEffortHours !== commitment.effortEstimateHours)
+    ? commitment.adjustedEffortHours
+    : (commitment.effortEstimateHours * multiplier);
+
+  const remainingEffort = (baseEffort || 0) * (1 - (commitment.completionPercentage || 0) / 100);
 
   // Time pressure = effort required divided by remaining hours
   const workloadRatio = remainingEffort / remainingTimeHours;
@@ -103,8 +113,18 @@ export function calculateProbability(commitment: Commitment, user: User): number
 
   if (remainingTimeHours <= 0) return 0.0;
 
-  const underestimationFactor = user.learningCoefficients?.underestimationFactor || 1.0;
-  const remainingEffort = (commitment.adjustedEffortHours || (commitment.effortEstimateHours * underestimationFactor) || 0) * (1 - (commitment.completionPercentage || 0) / 100);
+  const domainMultipliers = user.learningCoefficients?.domainEffortMultipliers || {};
+  const domainKey = commitment.domain;
+  const rawMultiplier = domainMultipliers[domainKey] !== undefined 
+    ? domainMultipliers[domainKey] 
+    : (user.learningCoefficients?.underestimationFactor || 1.0);
+  const multiplier = Math.max(0.5, Math.min(rawMultiplier, 2.0));
+  
+  const baseEffort = (commitment.adjustedEffortHours && commitment.adjustedEffortHours !== commitment.effortEstimateHours)
+    ? commitment.adjustedEffortHours
+    : (commitment.effortEstimateHours * multiplier);
+
+  const remainingEffort = (baseEffort || 0) * (1 - (commitment.completionPercentage || 0) / 100);
 
   if (remainingEffort <= 0) return 1.0;
 

@@ -99,6 +99,10 @@ export const useUserStore = create<UserState>((set, get) => ({
                 ? data.learningCoefficients.preferredWorkHours.map(Number)
                 : [],
               lastUpdated: toISO(data.learningCoefficients?.lastUpdated),
+              averageAttentionSpanMinutes: data.learningCoefficients?.averageAttentionSpanMinutes !== undefined
+                ? Number(data.learningCoefficients.averageAttentionSpanMinutes)
+                : undefined,
+              domainEffortMultipliers: data.learningCoefficients?.domainEffortMultipliers || undefined,
             },
             stats: {
               stressScore: Number(data.stats?.stressScore ?? 0),
@@ -111,7 +115,10 @@ export const useUserStore = create<UserState>((set, get) => ({
             },
             calendarLastFetchedAt: toISONullable(data.calendarLastFetchedAt),
             lastReflectionGeneratedAt: toISONullable(data.lastReflectionGeneratedAt),
-            lastWeeklyPlan: toISONullable(data.lastWeeklyPlan),
+            lastWeeklyPlan: data.lastWeeklyPlan || null,
+            lastWeeklyPlanGeneratedAt: toISONullable(data.lastWeeklyPlanGeneratedAt),
+            lastWeeklyReflection: data.lastWeeklyReflection || null,
+            lastWeeklyReflectionGeneratedAt: toISONullable(data.lastWeeklyReflectionGeneratedAt),
 
             // Backward compatibility fields
             googleRefreshToken: data.googleRefreshToken || data.googleCalendarRefreshToken || "",

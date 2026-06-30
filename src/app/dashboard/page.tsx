@@ -72,9 +72,13 @@ export default function DashboardPage() {
     setGmailError(null);
     try {
       if (!user) throw new Error("User not logged in");
+      const idToken = await user.getIdToken();
       const res = await fetch("/api/ai/gmail/scan", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { 
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${idToken}`
+        },
         body: JSON.stringify({ userId: user.uid, maxEmails: 20 }),
       });
       if (res.status === 401) {
@@ -145,9 +149,13 @@ export default function DashboardPage() {
     setRiskModalError(null);
     try {
       if (!user) throw new Error("User not logged in");
+      const idToken = await user.getIdToken();
       const res = await fetch('/api/ai/explain-risk', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${idToken}`
+        },
         body: JSON.stringify({ userId: user.uid, commitmentId })
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -347,12 +355,17 @@ export default function DashboardPage() {
                                   });
 
                                   // Trigger server-side AI action plan generation asynchronously
-                                  fetch('/api/ai/generate-action-plan', {
-                                    method: 'POST',
-                                    headers: { 'Content-Type': 'application/json' },
-                                    body: JSON.stringify({ userId: user!.uid, commitmentId: docId })
-                                  }).catch(err => {
-                                    console.error("Failed to generate action plan in background:", err);
+                                  user!.getIdToken().then(idToken => {
+                                    fetch('/api/ai/generate-action-plan', {
+                                      method: 'POST',
+                                      headers: { 
+                                        'Content-Type': 'application/json',
+                                        'Authorization': `Bearer ${idToken}`
+                                      },
+                                      body: JSON.stringify({ userId: user!.uid, commitmentId: docId })
+                                    }).catch(err => {
+                                      console.error("Failed to generate action plan in background:", err);
+                                    });
                                   });
 
                                   setGmailDismissed(prev => {

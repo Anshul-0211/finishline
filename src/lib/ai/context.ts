@@ -166,6 +166,13 @@ export async function assembleCoreContext(userId: string): Promise<CoreLifeConte
     availableSlotsThisWeek: calendarSlots,
     preferredWorkHours: user.learningCoefficients?.preferredWorkHours || [9, 10, 14, 15, 20, 21],
     underestimationFactor: user.learningCoefficients?.underestimationFactor || 1.0,
+    domainEffortMultipliers: user.learningCoefficients?.domainEffortMultipliers || {
+      work: 1.0,
+      academic: 1.0,
+      personal: 1.0,
+      health: 1.0
+    },
+    averageAttentionSpanMinutes: user.learningCoefficients?.averageAttentionSpanMinutes || 45,
     activeCommitments: commitments.map(c => ({
       id: c.id,
       title: c.title,

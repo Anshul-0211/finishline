@@ -31,10 +31,10 @@ async function runTests() {
   }
 
   // Test 2: Groq Fallback Gating
-  const originalKey = process.env.GEMINI_API_KEY;
+  const originalKey = process.env.VERTEX_API_KEY;
   try {
-    console.log("\n[Test 2] Testing Groq Fallback (sabotaging GEMINI_API_KEY)...");
-    process.env.GEMINI_API_KEY = "invalid-key-to-force-fallback";
+    console.log("\n[Test 2] Testing Groq Fallback (sabotaging VERTEX_API_KEY)...");
+    process.env.VERTEX_API_KEY = "invalid-key-to-force-fallback";
 
     if (!process.env.GROQ_API_KEY) {
       console.warn("Skipping Test 2: GROQ_API_KEY is not configured in .env.local");
@@ -56,7 +56,7 @@ async function runTests() {
   } catch (err) {
     console.error("✗ Test 2 Failed:", err);
   } finally {
-    process.env.GEMINI_API_KEY = originalKey;
+    process.env.VERTEX_API_KEY = originalKey;
   }
 }
 

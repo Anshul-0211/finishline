@@ -235,10 +235,14 @@ export default function AddCommitmentPage() {
     setEditingIndex(null);
     setConfirmingIndex(null);
     try {
+      const idToken = await user.getIdToken();
       console.log("[Frontend] Fetching /api/ai/extract-text...");
       const res = await fetch("/api/ai/extract-text", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { 
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${idToken}`
+        },
         body: JSON.stringify({ userId: user.uid, input: inputText }),
       });
       console.log("[Frontend] /api/ai/extract-text response status:", res.status);
@@ -275,10 +279,14 @@ export default function AddCommitmentPage() {
     setEditingIndex(null);
     setConfirmingIndex(null);
     try {
+      const idToken = await user.getIdToken();
       console.log("[Frontend] Fetching /api/ai/extract-voice...");
       const res = await fetch("/api/ai/extract-voice", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { 
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${idToken}`
+        },
         body: JSON.stringify({ userId: user.uid, transcript }),
       });
       console.log("[Frontend] /api/ai/extract-voice response status:", res.status);
@@ -349,11 +357,15 @@ export default function AddCommitmentPage() {
       setExtractionLoading(false);
 
       // Generate action plan
+      const idToken = await user.getIdToken();
       console.log("[Frontend] Fetching /api/ai/generate-action-plan...");
       setPlanLoading(true);
       const planRes = await fetch("/api/ai/generate-action-plan", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { 
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${idToken}`
+        },
         body: JSON.stringify({ userId: user.uid, commitmentId }),
       });
       console.log("[Frontend] /api/ai/generate-action-plan response status:", planRes.status);
@@ -558,9 +570,13 @@ export default function AddCommitmentPage() {
     setFileError(null);
     console.log("[Frontend] Fetching /api/ai/extract-file with payload:", { userId: user.uid, fileUrl, mimeType });
     try {
+      const idToken = await user.getIdToken();
       const res = await fetch("/api/ai/extract-file", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { 
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${idToken}`
+        },
         body: JSON.stringify({ userId: user.uid, fileUrl, mimeType }),
       });
       console.log("[Frontend] /api/ai/extract-file status code:", res.status);

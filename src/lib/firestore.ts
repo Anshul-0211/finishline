@@ -23,6 +23,7 @@ export async function createCommitment(
   const colRef = collection(db, "users", userId, "commitments");
   const docRef = await addDoc(colRef, {
     ...data,
+    isDirty: true,
     createdAt: data.createdAt || serverTimestamp(),
   });
   return docRef.id;
@@ -37,7 +38,10 @@ export async function updateCommitment(
     throw new Error("User not authenticated");
   }
   const docRef = doc(db, "users", userId, "commitments", commitmentId);
-  await updateDoc(docRef, data as any);
+  await updateDoc(docRef, {
+    ...data,
+    isDirty: true
+  } as any);
 }
 
 export async function getUser(userId: string): Promise<UserProfile> {
@@ -96,6 +100,10 @@ export async function getUser(userId: string): Promise<UserProfile> {
         ? data.learningCoefficients.preferredWorkHours.map(Number)
         : [],
       lastUpdated: toISO(data.learningCoefficients?.lastUpdated) as any,
+      averageAttentionSpanMinutes: data.learningCoefficients?.averageAttentionSpanMinutes !== undefined
+        ? Number(data.learningCoefficients.averageAttentionSpanMinutes)
+        : undefined,
+      domainEffortMultipliers: data.learningCoefficients?.domainEffortMultipliers || undefined,
     },
     stats: {
       stressScore: Number(data.stats?.stressScore ?? 0),
@@ -108,7 +116,10 @@ export async function getUser(userId: string): Promise<UserProfile> {
     },
     calendarLastFetchedAt: toISONullable(data.calendarLastFetchedAt) as any,
     lastReflectionGeneratedAt: toISONullable(data.lastReflectionGeneratedAt) as any,
-    lastWeeklyPlan: toISONullable(data.lastWeeklyPlan) as any,
+    lastWeeklyPlan: data.lastWeeklyPlan || null,
+    lastWeeklyPlanGeneratedAt: toISONullable(data.lastWeeklyPlanGeneratedAt) as any,
+    lastWeeklyReflection: data.lastWeeklyReflection || null,
+    lastWeeklyReflectionGeneratedAt: toISONullable(data.lastWeeklyReflectionGeneratedAt) as any,
 
     // Backward compatibility fields
     googleRefreshToken: data.googleRefreshToken || data.googleCalendarRefreshToken || "",

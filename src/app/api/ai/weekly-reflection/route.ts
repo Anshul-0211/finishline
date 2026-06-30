@@ -2,11 +2,12 @@ import { NextRequest, NextResponse } from "next/server";
 import { adminDb } from "@/lib/firebase/admin";
 import { FieldValue } from "firebase-admin/firestore";
 import { ensureFreshContext } from "@/lib/ai/freshness";
-import { callGemini } from "@/lib/ai/gemini";
+import { callGateway } from "@/lib/ai/gateway";
 import { WeeklyReflectionSchema } from "@/lib/ai/schemas/weeklyReflection";
 import { buildWeeklyReflectionPrompt, WEEKLY_REFLECTION_SYSTEM_INSTRUCTION } from "@/lib/ai/prompts/weeklyReflection";
 import { applyConfidenceAwareness, deriveConfidenceLabel } from "@/lib/ai/confidence";
 import { ExtendedLifeContext } from "@/lib/ai/types";
+import { verifyAuth } from "@/lib/auth/authVerification";
 
 export async function POST(req: NextRequest): Promise<NextResponse> {
   try {
@@ -17,6 +18,9 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       return NextResponse.json({ error: "Missing userId" }, { status: 400 });
     }
 
+    // Verify authentication and ownership
+    await verifyAuth(req, userId);
+
     // 1. Assemble Extended Life Context (with freshness check)
     console.log(`[weekly-reflection] Fetching fresh ExtendedLifeContext for user: ${userId}...`);
     const context = await ensureFreshContext(userId, "extended");
@@ -24,9 +28,9 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     // 2. Build prompt
     const prompt = buildWeeklyReflectionPrompt(context as ExtendedLifeContext);
 
-    // 3. Invoke Gemini
-    console.log("[weekly-reflection] Calling Gemini for weekly reflection...");
-    const rawResult = await callGemini<any>({
+    // 3. Invoke Gateway
+    console.log("[weekly-reflection] Calling Gateway for weekly reflection...");
+    const rawResult = await callGateway<any>({
       systemInstruction: WEEKLY_REFLECTION_SYSTEM_INSTRUCTION,
       prompt,
       schema: WeeklyReflectionSchema as any,
@@ -45,15 +49,20 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       },
     };
 
-    // 6. Update user's lastReflectionGeneratedAt timestamp in Firestore
-    console.log("[weekly-reflection] Updating lastReflectionGeneratedAt timestamp in Firestore...");
+    // 6. Update user's reflection cache in Firestore
+    console.log("[weekly-reflection] Caching weekly reflection and updating timestamp in Firestore...");
     await adminDb.collection("users").doc(userId).update({
+      lastWeeklyReflection: finalResult,
+      lastWeeklyReflectionGeneratedAt: FieldValue.serverTimestamp(),
       lastReflectionGeneratedAt: FieldValue.serverTimestamp(),
-    });
+    }).catch((e: any) => console.warn("[weekly-reflection] Caching failed:", e.message));
 
     return NextResponse.json(finalResult, { status: 200 });
 
-  } catch (err: unknown) {
+  } catch (err: any) {
+    if (err.status) {
+      return NextResponse.json({ error: err.message }, { status: err.status });
+    }
     const msg = err instanceof Error ? err.message : String(err);
     console.error("[weekly-reflection] Critical error generating weekly reflection:", msg);
     return NextResponse.json({ error: "Weekly reflection failed", details: msg }, { status: 500 });

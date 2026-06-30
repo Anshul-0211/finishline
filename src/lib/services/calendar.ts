@@ -74,6 +74,9 @@ async function getValidAccessToken(userId: string, user: User): Promise<string |
  * Retrieves primary calendar busy periods between start and end.
  */
 export async function getCalendarBusyPeriods(userId: string, start: Date, end: Date): Promise<TimeSlot[]> {
+  if (process.env.FINISHLINE_VALIDATION_MOCK === "true") {
+    return getMockBusyPeriods(start, end);
+  }
   try {
     const userDoc = await adminDb.collection("users").doc(userId).get();
     if (!userDoc.exists) {
@@ -130,6 +133,9 @@ export async function getCalendarBusyPeriods(userId: string, start: Date, end: D
  * Creates a single Google Calendar event.
  */
 export async function createCalendarEvent(userId: string, event: any): Promise<string> {
+  if (process.env.FINISHLINE_VALIDATION_MOCK === "true") {
+    return "mock-event-id-" + Math.random().toString(36).substring(2, 9);
+  }
   try {
     const calendar = await getCalendarClient(userId);
     const userDoc = await adminDb.collection("users").doc(userId).get();
@@ -158,6 +164,9 @@ export async function createCalendarEvent(userId: string, event: any): Promise<s
  * Updates an existing Google Calendar event.
  */
 export async function updateCalendarEvent(userId: string, eventId: string, updates: any): Promise<void> {
+  if (process.env.FINISHLINE_VALIDATION_MOCK === "true") {
+    return;
+  }
   try {
     const calendar = await getCalendarClient(userId);
     const userDoc = await adminDb.collection("users").doc(userId).get();
@@ -182,6 +191,9 @@ export async function updateCalendarEvent(userId: string, eventId: string, updat
  * Deletes an existing Google Calendar event.
  */
 export async function deleteCalendarEvent(userId: string, eventId: string): Promise<void> {
+  if (process.env.FINISHLINE_VALIDATION_MOCK === "true") {
+    return;
+  }
   try {
     const calendar = await getCalendarClient(userId);
     const userDoc = await adminDb.collection("users").doc(userId).get();

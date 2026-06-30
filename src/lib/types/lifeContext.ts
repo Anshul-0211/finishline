@@ -7,6 +7,8 @@ export interface CoreLifeContext {
   availableSlotsThisWeek: TimeSlot[];
   preferredWorkHours: number[];
   underestimationFactor: number;
+  domainEffortMultipliers?: Record<string, number>;
+  averageAttentionSpanMinutes?: number;
   activeCommitments: {
     id: string;
     title: string;

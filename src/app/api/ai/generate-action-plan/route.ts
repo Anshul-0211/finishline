@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { adminDb } from "@/lib/firebase/admin";
 import { ensureFreshContext } from "@/lib/ai/freshness";
-import { callGemini } from "@/lib/ai/gemini";
+import { callGateway } from "@/lib/ai/gateway";
 import { ActionPlanSchema } from "@/lib/ai/schemas/actionPlan";
 import { buildActionPlanPrompt, ACTION_PLAN_SYSTEM_INSTRUCTION } from "@/lib/ai/prompts/actionPlan";
 import { applyConfidenceAwareness, deriveConfidenceLabel } from "@/lib/ai/confidence";
+import { verifyAuth } from "@/lib/auth/authVerification";
 
 export async function POST(req: NextRequest): Promise<NextResponse> {
   try {
@@ -14,6 +15,9 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     if (!userId || !commitmentId) {
       return NextResponse.json({ error: "Missing userId or commitmentId" }, { status: 400 });
     }
+
+    // Verify authentication and ownership
+    await verifyAuth(req, userId);
 
     // 1. Fetch the commitment details from Firestore
     const commitmentDoc = await adminDb
@@ -33,11 +37,11 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     console.log(`[generate-action-plan] Fetching fresh CoreLifeContext for user: ${userId}...`);
     const context = await ensureFreshContext(userId, "core");
 
-    // 3. Build prompt and run Gemini call
+    // 3. Build prompt and run Gateway call
     const prompt = buildActionPlanPrompt(commitment, context);
 
-    console.log("[generate-action-plan] Calling Gemini for action plan generation...");
-    const rawResult = await callGemini<any>({
+    console.log("[generate-action-plan] Calling Gateway for action plan generation...");
+    const rawResult = await callGateway<any>({
       systemInstruction: ACTION_PLAN_SYSTEM_INSTRUCTION,
       prompt,
       schema: ActionPlanSchema as any,
@@ -59,7 +63,10 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
     return NextResponse.json(finalResult, { status: 200 });
 
-  } catch (err: unknown) {
+  } catch (err: any) {
+    if (err.status) {
+      return NextResponse.json({ error: err.message }, { status: err.status });
+    }
     const msg = err instanceof Error ? err.message : String(err);
     console.error("[generate-action-plan] Critical error generating action plan:", msg);
     return NextResponse.json({ error: "Action plan generation failed", details: msg }, { status: 500 });

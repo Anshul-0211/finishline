@@ -2,11 +2,12 @@ import { NextRequest, NextResponse } from "next/server";
 import { adminDb } from "@/lib/firebase/admin";
 import { FieldValue } from "firebase-admin/firestore";
 import { ensureFreshContext } from "@/lib/ai/freshness";
-import { callGemini } from "@/lib/ai/gemini";
+import { callGateway } from "@/lib/ai/gateway";
 import { RenegotiationSchema } from "@/lib/ai/schemas/renegotiation";
 import { buildRenegotiationPrompt, RENEGOTIATION_SYSTEM_INSTRUCTION } from "@/lib/ai/prompts/renegotiation";
 import { applyConfidenceAwareness, deriveConfidenceLabel } from "@/lib/ai/confidence";
 import { writeCommitmentBlocks } from "@/lib/services/calendar";
+import { verifyAuth } from "@/lib/auth/authVerification";
 import { 
   calculateRiskScore, 
   calculateProbability, 
@@ -45,6 +46,9 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     if (!userId || !commitmentId) {
       return NextResponse.json({ error: "Missing userId or commitmentId" }, { status: 400 });
     }
+
+    // Verify authentication and ownership
+    await verifyAuth(req, userId);
 
     // 1. Fetch commitment details
     const commitmentDoc = await adminDb
@@ -91,7 +95,9 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       console.log(`[renegotiate] Writing ${scheduleToConfirm.blocks.length} rescheduled blocks to Calendar...`);
       await writeCommitmentBlocks(userId, commitmentId, scheduleToConfirm.blocks);
 
-      const updates: Record<string, any> = {};
+      const updates: Record<string, any> = {
+        isDirty: true
+      };
 
       // If deadline changed, update it
       if (deadlineToConfirm) {
@@ -135,8 +141,8 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
     const prompt = buildRenegotiationPrompt(commitment as Commitment, context, history, userMessage);
 
-    console.log("[renegotiate] Calling Gemini for renegotiation turn...");
-    const rawResult = await callGemini<any>({
+    console.log("[renegotiate] Calling Gateway for renegotiation turn...");
+    const rawResult = await callGateway<any>({
       systemInstruction: RENEGOTIATION_SYSTEM_INSTRUCTION,
       prompt,
       schema: RenegotiationSchema as any,
@@ -155,7 +161,10 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
     return NextResponse.json(finalResult, { status: 200 });
 
-  } catch (err: unknown) {
+  } catch (err: any) {
+    if (err.status) {
+      return NextResponse.json({ error: err.message }, { status: err.status });
+    }
     const msg = err instanceof Error ? err.message : String(err);
     console.error("[renegotiate] Critical error in renegotiation:", msg);
     return NextResponse.json({ error: "Renegotiation failed", details: msg }, { status: 500 });

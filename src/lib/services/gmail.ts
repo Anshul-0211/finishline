@@ -68,6 +68,16 @@ export async function getGmailClient(userId: string) {
  * Fetches recent emails for classification.
  */
 export async function fetchRecentEmails(userId: string, maxResults = 20) {
+  if (process.env.FINISHLINE_VALIDATION_MOCK === "true") {
+    return [
+      {
+        id: "mock-gmail-message-id",
+        subject: "Amazon OA Invitation - Action Required",
+        from: "recruiter@amazon.com",
+        body: "Hi Priya,\n\nYou are invited to complete the Amazon Online Assessment (OA). You have 6 hours of effort required, and the deadline is this Thursday at 5:00 PM.\n\nBest,\nAmazon Recruiting"
+      }
+    ];
+  }
   const gmail = await getGmailClient(userId);
 
   console.log(`[Gmail] Listing recent messages (max: ${maxResults}) for user ${userId}...`);

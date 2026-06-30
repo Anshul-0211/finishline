@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { fetchRecentEmails } from "@/lib/services/gmail";
-import { callGemini } from "@/lib/ai/gemini";
+import { callGateway } from "@/lib/ai/gateway";
 import { gmailSuggestionSchema, GmailSuggestion } from "@/lib/ai/schemas/gmailSuggestion";
 import { buildGmailClassifierPrompt, GMAIL_CLASSIFIER_SYSTEM_INSTRUCTION } from "@/lib/ai/prompts/gmailClassifier";
+import { verifyAuth } from "@/lib/auth/authVerification";
 
 function sanitizeGmailSuggestion(parsed: any, originalMsg: { id: string; subject: string; from: string }): any {
   if (!parsed || typeof parsed !== "object") {
@@ -58,6 +59,9 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       return NextResponse.json({ error: "Missing userId" }, { status: 400 });
     }
 
+    // Verify authentication and ownership
+    await verifyAuth(req, userId);
+
     let emails: Array<{ id: string; subject: string; from: string; body: string }> = [];
     try {
       emails = await fetchRecentEmails(userId, maxEmails);
@@ -77,7 +81,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       try {
         const prompt = buildGmailClassifierPrompt(email.id, email.subject, email.from, email.body, today);
         
-        const result = await callGemini({
+        const result = await callGateway({
           systemInstruction: GMAIL_CLASSIFIER_SYSTEM_INSTRUCTION,
           prompt,
           schema: gmailSuggestionSchema as any,
@@ -105,7 +109,10 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     console.log(`[Gmail Scan] Scan complete. Found ${suggestions.length} suggestions.`);
     return NextResponse.json(suggestions, { status: 200 });
 
-  } catch (err: unknown) {
+  } catch (err: any) {
+    if (err.status) {
+      return NextResponse.json({ error: err.message }, { status: err.status });
+    }
     const msg = err instanceof Error ? err.message : String(err);
     console.error("[Gmail Scan] Critical error running scan:", msg);
     return NextResponse.json({ error: "Gmail scan failed", details: msg }, { status: 500 });

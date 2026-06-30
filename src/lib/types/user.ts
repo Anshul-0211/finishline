@@ -20,6 +20,10 @@ export interface LearningCoefficients {
   preferredWorkHours: number[];
   lastUpdated: FirestoreDate | null; // ISO 8601 string or Timestamp (made nullable)
 
+  // Evolving fields for Phase 1/2
+  averageAttentionSpanMinutes?: number;
+  domainEffortMultipliers?: { [key: string]: number };
+
   // Backward compatibility fields
   avgProcrastinationBuffer?: number;
 }
@@ -50,7 +54,10 @@ export interface UserProfile {
   stats: UserStats;
   calendarLastFetchedAt?: FirestoreDate | null; // ISO 8601 string or Timestamp (made optional)
   lastReflectionGeneratedAt?: FirestoreDate | null; // ISO 8601 string or Timestamp (made optional)
-  lastWeeklyPlan?: FirestoreDate | null; // ISO 8601 string or Timestamp (made optional)
+  lastWeeklyPlan?: any; // Weekly Plan JSON object
+  lastWeeklyReflection?: any; // Weekly Reflection JSON object
+  lastWeeklyReflectionGeneratedAt?: FirestoreDate | null;
+  lastWeeklyPlanGeneratedAt?: FirestoreDate | null;
 
   // Backward compatibility fields
   googleRefreshToken: string;

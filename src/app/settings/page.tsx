@@ -3,15 +3,17 @@
 import React, { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { onAuthStateChanged, GoogleAuthProvider, signInWithPopup, signOut } from "firebase/auth";
-import { Clock, ChevronDown, Calendar, Mail, ArrowLeft } from "lucide-react";
+import { Clock, ChevronDown, Calendar, Mail, ArrowLeft, Sparkles, Brain, Percent, RefreshCw, Loader2 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
-import { auth, getFcmMessaging } from "@/lib/firebase";
+import { auth, getFcmMessaging, db } from "@/lib/firebase";
 import { useUserStore } from "@/lib/stores/useUserStore";
 import { NavShell } from "@/components/nav-shell";
 import { ThemeToggle } from "@/components/ui/theme-toggle";
 import { PillButton } from "@/components/ui/pill-button";
 import { updateUser, getUser } from "@/lib/firestore";
 import { getToken, deleteToken } from "firebase/messaging";
+import { collection, query, where, onSnapshot } from "firebase/firestore";
+import { PersonalizationSuggestionCard, Suggestion } from "@/components/personalization-suggestion-card";
 
 export default function SettingsPage() {
   const router = useRouter();
@@ -28,6 +30,78 @@ export default function SettingsPage() {
   const [gmailConnected, setGmailConnected] = useState(false);
 
   const [showToast, setShowToast] = useState(false);
+  const [toastMessage, setToastMessage] = useState("Saved");
+  const [activeTab, setActiveTab] = useState<"general" | "productivity">("general");
+
+  const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
+  const [suggestionsLoading, setSuggestionsLoading] = useState(true);
+
+  // Suggestions snapshot listener
+  useEffect(() => {
+    if (!user?.uid) return;
+    setSuggestionsLoading(true);
+    const q = query(
+      collection(db, "users", user.uid, "suggestions"),
+      where("status", "==", "pending")
+    );
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const list: Suggestion[] = [];
+      snapshot.forEach((doc) => {
+        list.push({ id: doc.id, ...doc.data() } as Suggestion);
+      });
+      list.sort((a, b) => b.confidence - a.confidence);
+      setSuggestions(list);
+      setSuggestionsLoading(false);
+    }, (err) => {
+      console.error("Failed to load suggestions:", err);
+      setSuggestionsLoading(false);
+    });
+    return () => unsubscribe();
+  }, [user?.uid]);
+
+  const handleAcceptSuggestion = async (suggestionId: string) => {
+    if (!user) return;
+    try {
+      const idToken = await user.getIdToken();
+      const res = await fetch("/api/user/update-coefficients", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${idToken}`
+        },
+        body: JSON.stringify({ suggestionId, status: "accepted" })
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      
+      setToastMessage("Suggestion accepted! Profile updated.");
+      setShowToast(true);
+      setTimeout(() => setShowToast(false), 2500);
+    } catch (err: any) {
+      console.error("Failed to accept suggestion:", err);
+    }
+  };
+
+  const handleDismissSuggestion = async (suggestionId: string) => {
+    if (!user) return;
+    try {
+      const idToken = await user.getIdToken();
+      const res = await fetch("/api/user/update-coefficients", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${idToken}`
+        },
+        body: JSON.stringify({ suggestionId, status: "dismissed" })
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      
+      setToastMessage("Suggestion dismissed.");
+      setShowToast(true);
+      setTimeout(() => setShowToast(false), 2500);
+    } catch (err: any) {
+      console.error("Failed to dismiss suggestion:", err);
+    }
+  };
 
   // Load User Preferences On Mount / Auth State
   useEffect(() => {
@@ -317,7 +391,41 @@ export default function SettingsPage() {
           </button>
         </section>
 
-        {/* APPEARANCE SECTION */}
+        {/* Tab Navigation */}
+        <div className="flex border-b border-outline-variant/30 gap-6 mt-2">
+          <button
+            onClick={() => setActiveTab("general")}
+            className={`pb-3 text-sm font-bold tracking-wide transition-colors relative outline-none focus-visible:text-primary ${
+              activeTab === "general" ? "text-primary" : "text-outline hover:text-on-surface"
+            }`}
+          >
+            <span>General Settings</span>
+            {activeTab === "general" && (
+              <motion.div
+                layoutId="activeTabUnderline"
+                className="absolute bottom-0 left-0 right-0 h-0.5 bg-primary"
+              />
+            )}
+          </button>
+          <button
+            onClick={() => setActiveTab("productivity")}
+            className={`pb-3 text-sm font-bold tracking-wide transition-colors relative outline-none focus-visible:text-primary ${
+              activeTab === "productivity" ? "text-primary" : "text-outline hover:text-on-surface"
+            }`}
+          >
+            <span>Productivity Profile</span>
+            {activeTab === "productivity" && (
+              <motion.div
+                layoutId="activeTabUnderline"
+                className="absolute bottom-0 left-0 right-0 h-0.5 bg-primary"
+              />
+            )}
+          </button>
+        </div>
+
+        {activeTab === "general" ? (
+          <>
+            {/* APPEARANCE SECTION */}
         <section className="space-y-3">
           <h4 className="text-[12px] font-extrabold font-label text-outline tracking-wider uppercase pl-1">
             Appearance
@@ -520,6 +628,155 @@ export default function SettingsPage() {
             </div>
           </div>
         </section>
+          </>
+        ) : (
+          /* PRODUCTIVITY PROFILE TAB */
+          <div className="flex flex-col gap-6">
+            {/* Productivity Profile Metrics Card */}
+            <section className="space-y-3">
+              <h4 className="text-[12px] font-extrabold font-label text-outline tracking-wider uppercase pl-1">
+                Productivity Metrics
+              </h4>
+              <div className="bg-surface-container-lowest border border-outline-variant/30 rounded-xl p-5 shadow-card grid grid-cols-1 md:grid-cols-2 gap-6">
+                
+                {/* Multiplier Stat */}
+                <div className="flex items-start gap-3">
+                  <div className="w-10 h-10 rounded-full bg-primary/10 text-primary flex items-center justify-center flex-shrink-0 mt-0.5">
+                    <Percent className="w-5 h-5" />
+                  </div>
+                  <div className="space-y-1">
+                    <span className="text-[12px] font-bold text-outline uppercase tracking-wider block">
+                      Underestimation Factor
+                    </span>
+                    <span className="text-[20px] font-black text-on-surface leading-none block">
+                      {(userProfile?.learningCoefficients?.underestimationFactor ?? 1.0).toFixed(2)}x
+                    </span>
+                    <span className="text-[12px] text-on-surface-variant font-medium leading-relaxed block">
+                      Adjusts plan effort requirements based on past performance.
+                    </span>
+                  </div>
+                </div>
+
+                {/* Attention Span Stat */}
+                <div className="flex items-start gap-3">
+                  <div className="w-10 h-10 rounded-full bg-primary/10 text-primary flex items-center justify-center flex-shrink-0 mt-0.5">
+                    <Clock className="w-5 h-5" />
+                  </div>
+                  <div className="space-y-1">
+                    <span className="text-[12px] font-bold text-outline uppercase tracking-wider block">
+                      Attention Span
+                    </span>
+                    <span className="text-[20px] font-black text-on-surface leading-none block">
+                      {userProfile?.learningCoefficients?.averageAttentionSpanMinutes ?? 25} min
+                    </span>
+                    <span className="text-[12px] text-on-surface-variant font-medium leading-relaxed block">
+                      Optimal duration of active work before scheduling breaks.
+                    </span>
+                  </div>
+                </div>
+
+                {/* Preferred Work Hours Stat */}
+                {userProfile?.learningCoefficients?.preferredWorkHours && userProfile.learningCoefficients.preferredWorkHours.length > 0 && (
+                  <div className="flex items-start gap-3 md:col-span-2 border-t border-outline-variant/20 pt-4">
+                    <div className="w-10 h-10 rounded-full bg-primary/10 text-primary flex items-center justify-center flex-shrink-0 mt-0.5">
+                      <Brain className="w-5 h-5" />
+                    </div>
+                    <div className="space-y-2">
+                      <span className="text-[12px] font-bold text-outline uppercase tracking-wider block">
+                        Preferred Focus Hours
+                      </span>
+                      <div className="flex flex-wrap gap-1.5">
+                        {userProfile.learningCoefficients.preferredWorkHours.map((h, i) => {
+                          const period = h >= 12 ? "PM" : "AM";
+                          const displayH = h % 12 === 0 ? 12 : h % 12;
+                          return (
+                            <span 
+                              key={i}
+                              className="px-2.5 py-1 bg-surface-container text-on-surface text-[11px] font-bold rounded-full border border-outline-variant/30 font-label shadow-sm"
+                            >
+                              {displayH}:00 {period}
+                            </span>
+                          );
+                        })}
+                      </div>
+                      <span className="text-[12px] text-on-surface-variant font-medium leading-relaxed block">
+                        Identified peak cognitive periods for demanding tasks.
+                      </span>
+                    </div>
+                  </div>
+                )}
+
+                {/* Domain-specific Multipliers */}
+                {userProfile?.learningCoefficients?.domainEffortMultipliers && Object.keys(userProfile.learningCoefficients.domainEffortMultipliers).length > 0 && (
+                  <div className="flex items-start gap-3 md:col-span-2 border-t border-outline-variant/20 pt-4">
+                    <div className="w-10 h-10 rounded-full bg-primary/10 text-primary flex items-center justify-center flex-shrink-0 mt-0.5">
+                      <Sparkles className="w-5 h-5" />
+                    </div>
+                    <div className="space-y-2 w-full">
+                      <span className="text-[12px] font-bold text-outline uppercase tracking-wider block">
+                        Domain Multipliers
+                      </span>
+                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 w-full">
+                        {Object.entries(userProfile.learningCoefficients.domainEffortMultipliers).map(([domain, val], idx) => (
+                          <div 
+                            key={idx}
+                            className="bg-surface-container border border-outline-variant/30 rounded-xl p-3 flex flex-col gap-1 shadow-sm"
+                          >
+                            <span className="text-[10px] font-extrabold uppercase tracking-wide text-outline text-left">
+                              {domain}
+                            </span>
+                            <span className="text-lg font-black text-on-surface leading-none text-left">
+                              {Number(val).toFixed(2)}x
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+              </div>
+            </section>
+
+            {/* Recommendations / Suggestions Section */}
+            <section className="space-y-3">
+              <h4 className="text-[12px] font-extrabold font-label text-outline tracking-wider uppercase pl-1">
+                AI Calibration Recommendations
+              </h4>
+
+              {suggestionsLoading ? (
+                <div className="flex items-center justify-center py-12">
+                  <Loader2 className="w-6 h-6 animate-spin text-primary" />
+                </div>
+              ) : suggestions.length === 0 ? (
+                <div className="flex flex-col items-center justify-center p-8 bg-surface-container-lowest border border-outline-variant/30 rounded-2xl text-center gap-3">
+                  <div className="w-12 h-12 bg-primary/10 text-primary rounded-full flex items-center justify-center">
+                    <Brain className="w-6 h-6" />
+                  </div>
+                  <div className="space-y-1">
+                    <h4 className="text-sm font-bold text-on-surface">Your profile is fully calibrated</h4>
+                    <p className="text-xs text-on-surface-variant max-w-[320px]">
+                      No new suggestions available. As you complete more focus sessions, FinishLine will discover patterns.
+                    </p>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex flex-col gap-3">
+                  <AnimatePresence mode="popLayout">
+                    {suggestions.map((s) => (
+                      <PersonalizationSuggestionCard
+                        key={s.id}
+                        suggestion={s}
+                        onAccept={handleAcceptSuggestion}
+                        onDismiss={handleDismissSuggestion}
+                      />
+                    ))}
+                  </AnimatePresence>
+                </div>
+              )}
+            </section>
+          </div>
+        )}
 
         {/* ABOUT / FOOTER SECTION */}
         <footer className="flex flex-col gap-1 text-center py-4">
@@ -540,7 +797,7 @@ export default function SettingsPage() {
               exit={{ y: 50, opacity: 0 }}
               className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 bg-tertiary text-on-tertiary px-6 py-2.5 rounded-full shadow-lg text-sm font-semibold font-label tracking-wide flex items-center justify-center gap-1.5"
             >
-              <span>Saved</span>
+              <span>{toastMessage}</span>
             </motion.div>
           )}
         </AnimatePresence>

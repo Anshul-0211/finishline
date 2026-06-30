@@ -6,6 +6,8 @@ import { processCheckIns } from "@/lib/services/agent/checkin";
 import { processResurface } from "@/lib/services/agent/resurface";
 import { shouldRunPatternLearner, runPatternLearner } from "@/lib/services/agent/patternLearner";
 import { logAgentRun } from "@/lib/services/agent/log";
+import { adminDb } from "@/lib/firebase/admin";
+import { FieldValue } from "firebase-admin/firestore";
 
 function authorize(req: NextRequest): boolean {
   const authHeader = req.headers.get("authorization");
@@ -88,6 +90,21 @@ async function handleRun(req: NextRequest): Promise<NextResponse> {
             const msg = err instanceof Error ? err.message : String(err);
             allErrors.push(`Failed Pattern Learner step for user ${user.uid}: ${msg}`);
           }
+        }
+
+        // 6. Reset dirty flag and set last evaluated timestamp
+        if (commitments.length > 0) {
+          const batch = adminDb.batch();
+          const userRef = adminDb.collection("users").doc(user.uid);
+          commitments.forEach((c) => {
+            const docRef = userRef.collection("commitments").doc(c.id);
+            batch.update(docRef, {
+              isDirty: false,
+              lastEvaluatedAt: FieldValue.serverTimestamp()
+            });
+          });
+          await batch.commit();
+          console.log(`[Cron Agent] Reset isDirty flag for ${commitments.length} commitments of user ${user.uid}`);
         }
 
         usersProcessed++;

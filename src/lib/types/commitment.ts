@@ -107,6 +107,10 @@ export interface Commitment {
   probabilityCurrentPath?: number;
   probabilityRecommendedPath?: number;
   checkInHistory?: CheckInHistoryEntry[];
+
+  // Phase 1 Optimization fields
+  isDirty?: boolean;
+  lastEvaluatedAt?: FirestoreDate | null;
 }
 
 export interface CheckInHistoryEntry {
@@ -239,5 +243,9 @@ export function firestoreToCommitment(doc: DocumentSnapshot): Commitment {
     sourceFileUrl: data.sourceFileUrl || null,
     gmailMessageId: data.gmailMessageId || null,
     checkInHistory,
+
+    // Phase 1 Optimization fields
+    isDirty: data.isDirty !== undefined ? Boolean(data.isDirty) : true,
+    lastEvaluatedAt: toISONullable(data.lastEvaluatedAt) as any,
   };
 }

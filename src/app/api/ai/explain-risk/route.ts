@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { adminDb } from "@/lib/firebase/admin";
-import { callGemini } from "@/lib/ai/gemini";
+import { callGateway } from "@/lib/ai/gateway";
 import { RiskExplanationSchema } from "@/lib/ai/schemas/riskExplanation";
 import { buildRiskExplanationPrompt, RISK_EXPLANATION_SYSTEM_INSTRUCTION } from "@/lib/ai/prompts/riskExplanation";
 import { applyConfidenceAwareness, deriveConfidenceLabel } from "@/lib/ai/confidence";
 import { Commitment } from "@/lib/types";
+import { verifyAuth } from "@/lib/auth/authVerification";
 
 export async function POST(req: NextRequest): Promise<NextResponse> {
   try {
@@ -14,6 +15,9 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     if (!userId || !commitmentId) {
       return NextResponse.json({ error: "Missing userId or commitmentId" }, { status: 400 });
     }
+
+    // Verify authentication and ownership
+    await verifyAuth(req, userId);
 
     // 1. Fetch the commitment details from Firestore
     const commitmentDoc = await adminDb
@@ -33,8 +37,8 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     // 2. Build prompt using only commitment details (Core subset)
     const prompt = buildRiskExplanationPrompt(commitment as Commitment, riskScore);
 
-    console.log("[explain-risk] Calling Gemini for risk explanation...");
-    const rawResult = await callGemini<any>({
+    console.log("[explain-risk] Calling Gateway for risk explanation...");
+    const rawResult = await callGateway<any>({
       systemInstruction: RISK_EXPLANATION_SYSTEM_INSTRUCTION,
       prompt,
       schema: RiskExplanationSchema as any,
@@ -55,7 +59,10 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
     return NextResponse.json(finalResult, { status: 200 });
 
-  } catch (err: unknown) {
+  } catch (err: any) {
+    if (err.status) {
+      return NextResponse.json({ error: err.message }, { status: err.status });
+    }
     const msg = err instanceof Error ? err.message : String(err);
     console.error("[explain-risk] Critical error explaining risk:", msg);
     return NextResponse.json({ error: "Risk explanation failed", details: msg }, { status: 500 });

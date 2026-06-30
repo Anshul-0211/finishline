@@ -1,10 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
-import { callGemini } from "@/lib/ai/gemini";
+import { callGateway } from "@/lib/ai/gateway";
 import { commitmentDraftArraySchema } from "@/lib/ai/schemas/commitmentDraft";
 import { buildExtractionPrompt, EXTRACTION_SYSTEM_INSTRUCTION } from "@/lib/ai/prompts/extraction";
+import { verifyAuth } from "@/lib/auth/authVerification";
 
 export async function POST(req: NextRequest): Promise<NextResponse> {
   try {
+    const decoded = await verifyAuth(req);
+
     const body = await req.json();
     const { input, timezone = "UTC" } = body;
 
@@ -15,7 +18,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     const today = new Date().toISOString().split("T")[0]; // YYYY-MM-DD
     const prompt = buildExtractionPrompt(input, today, timezone);
 
-    const result = await callGemini({
+    const result = await callGateway({
       systemInstruction: EXTRACTION_SYSTEM_INSTRUCTION,
       prompt,
       schema: commitmentDraftArraySchema,
@@ -24,7 +27,10 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
     return NextResponse.json(result, { status: 200 });
 
-  } catch (err: unknown) {
+  } catch (err: any) {
+    if (err.status) {
+      return NextResponse.json({ error: err.message }, { status: err.status });
+    }
     const msg = err instanceof Error ? err.message : String(err);
     console.error("[extract-text] AI extraction failed:", msg);
     return NextResponse.json({ error: "Extraction failed", details: msg }, { status: 500 });

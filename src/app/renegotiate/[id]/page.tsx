@@ -147,10 +147,14 @@ export default function RenegotiationPage({ params }: { params: { id: string } }
     setLoading(true);
 
     try {
+      const idToken = await user.getIdToken();
       const currentMessages = useRenegotiationStore.getState().messages;
       const res = await fetch("/api/ai/renegotiate", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { 
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${idToken}`
+        },
         body: JSON.stringify({
           userId: user.uid,
           commitmentId: params.id,
@@ -184,10 +188,14 @@ export default function RenegotiationPage({ params }: { params: { id: string } }
     setLoading(true);
     setError(null);
     try {
+      const idToken = await user.getIdToken();
       const currentMessages = useRenegotiationStore.getState().messages;
       const res = await fetch("/api/ai/renegotiate", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { 
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${idToken}`
+        },
         body: JSON.stringify({
           userId: user.uid,
           commitmentId: params.id,
