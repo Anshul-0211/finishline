@@ -1,3 +1,16 @@
+// Self-healing check for GOOGLE_APPLICATION_CREDENTIALS path
+if (typeof window === "undefined" && process.env.GOOGLE_APPLICATION_CREDENTIALS) {
+  try {
+    const fs = require("fs");
+    if (!fs.existsSync(process.env.GOOGLE_APPLICATION_CREDENTIALS)) {
+      console.warn(`[Init] GOOGLE_APPLICATION_CREDENTIALS points to a non-existent path: "${process.env.GOOGLE_APPLICATION_CREDENTIALS}". Unsetting it to allow default fallback (ADC).`);
+      delete process.env.GOOGLE_APPLICATION_CREDENTIALS;
+    }
+  } catch (e) {
+    console.error("Error verifying GOOGLE_APPLICATION_CREDENTIALS:", e);
+  }
+}
+
 import { z } from 'zod';
 import { zodToJsonSchema } from 'zod-to-json-schema';
 import { GoogleGenAI } from '@google/genai';

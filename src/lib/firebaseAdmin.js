@@ -1,4 +1,16 @@
 "use strict";
+// Self-healing check for GOOGLE_APPLICATION_CREDENTIALS path
+if (typeof window === "undefined" && process.env.GOOGLE_APPLICATION_CREDENTIALS) {
+  try {
+    var fs = require("fs");
+    if (!fs.existsSync(process.env.GOOGLE_APPLICATION_CREDENTIALS)) {
+      console.warn('[Init] GOOGLE_APPLICATION_CREDENTIALS points to a non-existent path: "' + process.env.GOOGLE_APPLICATION_CREDENTIALS + '". Unsetting it to allow default fallback (ADC).');
+      delete process.env.GOOGLE_APPLICATION_CREDENTIALS;
+    }
+  } catch (e) {
+    console.error("Error verifying GOOGLE_APPLICATION_CREDENTIALS:", e);
+  }
+}
 var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, generator) {
     function adopt(value) { return value instanceof P ? value : new P(function (resolve) { resolve(value); }); }
     return new (P || (P = Promise))(function (resolve, reject) {
