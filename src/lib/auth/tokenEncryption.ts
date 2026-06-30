@@ -24,7 +24,8 @@ export function encrypt(text: string): string {
 }
 
 export function decrypt(text: string): string {
-  if (!text) return "";
+  if (!text || text === "false") return "";
+  if (!text.includes(":")) return text;
   try {
     const textParts = text.split(":");
     const ivHex = textParts.shift();

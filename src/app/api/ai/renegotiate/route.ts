@@ -32,7 +32,7 @@ async function recalculateCommitmentRisk(userId: string, commitmentId: string) {
     const trend = computeRiskTrend(score, commitment.riskScore || 0);
     await updateCommitmentRisk(userId, commitmentId, score, trend, prob);
     
-    const allCommitments = commitmentsSnap.docs.map(doc => doc.data() as Commitment);
+    const allCommitments = commitmentsSnap.docs.map((doc: any) => doc.data() as Commitment);
     const stress = computeStressScore(allCommitments);
     await updateUserStressScore(userId, stress);
   }

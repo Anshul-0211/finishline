@@ -7,19 +7,61 @@ import { computeCompletionRate, computeMostProductiveDomain, computeCommonFailur
 
 export type { CoreLifeContext, ExtendedLifeContext };
 
-async function getUser(userId: string): Promise<User> {
+function createDefaultUser(userId: string): User {
+  const now = new Date().toISOString();
+  return {
+    uid: userId,
+    email: "",
+    displayName: "FinishLine User",
+    photoURL: "",
+    googleCalendarRefreshToken: "false",
+    googleGmailRefreshToken: "false",
+    googleRefreshToken: "",
+    googleAccessToken: "",
+    createdAt: now,
+    lastActiveAt: now,
+    preferences: {
+      timezone: "Asia/Kolkata",
+      workingHours: { start: 9, end: 17 },
+      defaultDomain: "personal",
+      notificationsEnabled: false,
+      fcmToken: "",
+      theme: "dark"
+    },
+    learningCoefficients: {
+      underestimationFactor: 1.2,
+      preferredWorkHours: [9, 10, 11, 14, 15, 16],
+      lastUpdated: null,
+      averageAttentionSpanMinutes: 45,
+      avgProcrastinationBuffer: 15
+    },
+    stats: {
+      stressScore: 0,
+      currentStreak: 0,
+      longestStreak: 0,
+      totalCommitmentsCreated: 0,
+      totalCompleted: 0,
+      totalMissed: 0
+    }
+  };
+}
+
+export async function getUser(userId: string): Promise<User> {
   const snap = await adminDb.collection("users").doc(userId).get();
   if (!snap.exists) {
-    throw new Error(`User document ${userId} not found`);
+    const defaultUser = createDefaultUser(userId);
+    await adminDb.collection("users").doc(userId).set(defaultUser);
+    return defaultUser;
   }
   return snap.data() as User;
 }
+
 
 async function getActiveCommitments(userId: string): Promise<Commitment[]> {
   const snap = await adminDb.collection("users").doc(userId).collection("commitments")
     .where("status", "in", ["active", "renegotiating"])
     .get();
-  return snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Commitment));
+  return snap.docs.map((doc: any) => ({ id: doc.id, ...doc.data() } as Commitment));
 }
 
 export async function getCalendarFreeSlots(
@@ -162,7 +204,7 @@ export async function assembleCoreContext(userId: string): Promise<CoreLifeConte
   return {
     userId,
     currentDateTime: now,
-    timezone: (user.preferences as unknown as Record<string, unknown>)?.timezone as string || "UTC",
+    timezone: ((user.preferences as unknown as Record<string, unknown>)?.timezone as string) || (typeof Intl !== "undefined" && Intl.DateTimeFormat().resolvedOptions().timeZone) || "Asia/Kolkata",
     availableSlotsThisWeek: calendarSlots,
     preferredWorkHours: user.learningCoefficients?.preferredWorkHours || [9, 10, 14, 15, 20, 21],
     underestimationFactor: user.learningCoefficients?.underestimationFactor || 1.0,
@@ -189,6 +231,7 @@ export async function assembleCoreContext(userId: string): Promise<CoreLifeConte
         end: (b.end as any)?.toDate?.() ? (b.end as any).toDate().toISOString() : (b.end as any),
         calendarEventId: b.calendarEventId,
       })),
+      priority: c.priority || "medium",
     })),
     stressScore: user.stats?.stressScore || 0,
     totalActiveCommitments: commitments.length,
@@ -219,7 +262,7 @@ async function getPastWeekData(userId: string) {
   let actualEffortHours = 0;
   let estimatedEffortHours = 0;
 
-  commitmentsSnap.docs.forEach(doc => {
+  commitmentsSnap.docs.forEach((doc: any) => {
     const c = doc.data() as Commitment;
     if (c.status === "completed") {
       completedCommitments.push({
@@ -255,7 +298,7 @@ async function getLongTermGoals(userId: string) {
     .where("isLongTermGoal", "==", true)
     .where("status", "==", "active")
     .get();
-  return snap.docs.map(doc => {
+  return snap.docs.map((doc: any) => {
     const c = doc.data() as Commitment;
     return {
       id: doc.id,
@@ -275,7 +318,7 @@ async function getRecentRenegotiations(userId: string, options: { weeks: number 
   const snap = await adminDb.collection("users").doc(userId).collection("renegotiations")
     .get();
     
-  return snap.docs.map(doc => {
+  return snap.docs.map((doc: any) => {
     const r = doc.data() as Renegotiation;
     return {
       commitmentTitle: r.userMessage || "Commitment",
@@ -296,6 +339,7 @@ export async function assembleExtendedContext(userId: string): Promise<ExtendedL
 
   return {
     ...core,
+    burnoutDetected: user.stats?.burnoutDetected || false,
     recentCompletionRate: computeCompletionRate(user, { weeks: 4 }),
     avgUnderestimation: user.learningCoefficients?.underestimationFactor || 1.0,
     mostProductiveDomain: computeMostProductiveDomain(user),

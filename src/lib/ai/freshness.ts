@@ -1,7 +1,7 @@
 import { adminDb } from "@/lib/firebase/admin";
 import { Timestamp } from "firebase-admin/firestore";
 import { User } from "@/lib/types";
-import { assembleCoreContext, assembleExtendedContext } from "./context";
+import { assembleCoreContext, assembleExtendedContext, getUser } from "./context";
 import { CoreLifeContext, ExtendedLifeContext } from "../types/lifeContext";
 
 const STALENESS_THRESHOLDS = {
@@ -42,11 +42,7 @@ export async function ensureFreshContext(
   userId: string,
   tier: 'core' | 'extended'
 ): Promise<CoreLifeContext | ExtendedLifeContext> {
-  const userDoc = await adminDb.collection("users").doc(userId).get();
-  if (!userDoc.exists) {
-    throw new Error(`User ${userId} not found`);
-  }
-  const user = userDoc.data() as User;
+  const user = await getUser(userId);
   const now = Date.now();
 
   // Refresh calendar if stale

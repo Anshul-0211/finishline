@@ -3,6 +3,7 @@ import { callGateway } from "@/lib/ai/gateway";
 import { commitmentDraftFullArraySchema } from "@/lib/ai/schemas/commitmentDraftFull";
 import { buildFileExtractionPrompt, FILE_EXTRACTION_SYSTEM_INSTRUCTION } from "@/lib/ai/prompts/fileExtraction";
 import { verifyAuth } from "@/lib/auth/authVerification";
+import { resolveUserTimezone } from "@/lib/ai/timezone";
 
 function sanitizeExtractedCommitments(parsed: unknown): any[] {
   if (!parsed) return [];
@@ -67,7 +68,8 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     const decoded = await verifyAuth(req);
 
     const body = await req.json();
-    const { fileUrl, mimeType } = body;
+    const { fileUrl, mimeType, timezone: requestedTimezone } = body;
+    const timezone = await resolveUserTimezone(decoded.uid, requestedTimezone);
 
     if (!fileUrl || !mimeType) {
       return NextResponse.json({ error: "Missing fileUrl or mimeType" }, { status: 400 });
@@ -84,8 +86,12 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     console.log(`[extract-file] Downloaded ${fileBuffer.length} bytes.`);
 
     // 2. Build the prompt
-    const today = new Date().toISOString().split("T")[0]; // YYYY-MM-DD
-    const prompt = buildFileExtractionPrompt(today);
+    const todayDate = new Date();
+    const todayStr = todayDate.toLocaleDateString("en-CA", { timeZone: timezone }); // YYYY-MM-DD in user's timezone
+    const weekday = todayDate.toLocaleDateString("en-US", { timeZone: timezone, weekday: "long" }); // e.g., Tuesday
+    const fullDateName = todayDate.toLocaleDateString("en-US", { timeZone: timezone, year: "numeric", month: "long", day: "numeric" }); // e.g., June 30, 2026
+    const today = `${weekday}, ${fullDateName} (${todayStr})`; // e.g., Tuesday, June 30, 2026 (2026-06-30)
+    const prompt = buildFileExtractionPrompt(today, timezone);
 
     // 3. Make the Multimodal Call via unified Gateway
     const result = await callGateway({

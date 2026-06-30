@@ -1,7 +1,7 @@
 "use client";
 
 import React from "react";
-import { Calendar, TrendingUp, TrendingDown, Minus, Timer } from "lucide-react";
+import { Calendar, TrendingUp, TrendingDown, Minus, Timer, Trash2 } from "lucide-react";
 import { motion } from "framer-motion";
 import { DomainBadge, DomainType } from "@/components/ui/domain-badge";
 import { RiskBadge } from "@/components/ui/risk-badge";
@@ -22,6 +22,7 @@ export interface CommitmentCardProps {
   priority: PriorityType;
   onWhyClick?: () => void;
   onFocusClick?: () => void;
+  onDeleteClick?: () => void;
 }
 
 const getDaysRemainingText = (deadlineStr: string): string => {
@@ -64,6 +65,7 @@ export const CommitmentCard: React.FC<CommitmentCardProps> = ({
   priority,
   onWhyClick,
   onFocusClick,
+  onDeleteClick,
 }) => {
   const accentStatus = STATUS_TO_ACCENT[status] || "in-progress";
   const daysText = getDaysRemainingText(deadline);
@@ -136,6 +138,19 @@ export const CommitmentCard: React.FC<CommitmentCardProps> = ({
               >
                 <Timer className="w-3.5 h-3.5" />
                 <span>Focus</span>
+              </PillButton>
+            )}
+            {onDeleteClick && (
+              <PillButton
+                variant="ghost"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onDeleteClick();
+                }}
+                className="text-xs px-2.5 h-8 !text-error hover:bg-error/5 hover:!text-error gap-1"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>Delete</span>
               </PillButton>
             )}
           </div>

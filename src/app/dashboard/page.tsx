@@ -3,7 +3,7 @@
 import React, { useEffect, useState, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { onAuthStateChanged } from "firebase/auth";
-import { Plus, Mail, RefreshCw, Loader2 } from "lucide-react";
+import { Plus, Mail, RefreshCw, Loader2, ShieldCheck, Activity, Sparkles, Terminal, CheckCircle, X } from "lucide-react";
 import { auth } from "@/lib/firebase/client";
 import { useUserStore } from "@/lib/stores/useUserStore";
 import { useCommitmentsStore } from "@/lib/stores/useCommitmentsStore";
@@ -170,6 +170,32 @@ export default function DashboardPage() {
 
   const isLoading = !authChecked || commitmentsLoading;
   const displayName = userProfile?.displayName || user?.displayName || "User";
+
+  // Session-scoped Agent HUD state and trigger
+  const [showAgentModal, setShowAgentModal] = useState(false);
+
+  useEffect(() => {
+    if (!isLoading && user) {
+      const notified = sessionStorage.getItem("agent_status_notified");
+      if (!notified) {
+        const timer = setTimeout(() => {
+          setShowAgentModal(true);
+          sessionStorage.setItem("agent_status_notified", "true");
+        }, 1200);
+        return () => clearTimeout(timer);
+      }
+    }
+  }, [isLoading, user]);
+
+  // Bind testing helper to window for manual testing in Console
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      (window as any).toggleAgentHUD = (show?: boolean) => {
+        setShowAgentModal(show !== undefined ? show : true);
+      };
+      console.log("[FinishLine] Manual HUD Preview: run `window.toggleAgentHUD(true)` in console to trigger!");
+    }
+  }, []);
 
   const colliding = useMemo(() => {
     return commitments.filter(c => c.hasCollision && !dismissedIds.has(c.id));
@@ -437,6 +463,16 @@ export default function DashboardPage() {
         >
           <Plus className="w-6 h-6" />
         </button>
+
+        {/* Dev HUD trigger button for manual testing */}
+        <button
+          onClick={() => setShowAgentModal(true)}
+          className="fixed bottom-[96px] left-4 z-30 px-4 py-2 bg-surface-container-low hover:bg-surface-container border border-outline-variant/40 text-on-surface-variant hover:text-on-surface rounded-full flex items-center gap-2 text-xs font-semibold shadow-card hover:shadow-md transition-all duration-200 outline-none focus-visible:ring-2 focus-visible:ring-primary"
+          title="Manual HUD Trigger for testing"
+        >
+          <Activity className="w-3.5 h-3.5 text-primary animate-pulse" />
+          <span>Test Agent HUD</span>
+        </button>
       </div>
 
       <RiskExplanationModal
@@ -451,6 +487,169 @@ export default function DashboardPage() {
         reviewReason={riskExplanationData?.reviewReason}
         aiMeta={riskExplanationData?.aiMeta}
       />
+
+      {/* AGENT_STATUS_POPUP_MODAL */}
+      <AnimatePresence>
+        {showAgentModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            {/* Backdrop: full-screen rgba overlay with blur */}
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setShowAgentModal(false)}
+              className="fixed inset-0 bg-black/60 dark:bg-black/75 backdrop-blur-[12px]"
+            />
+
+            {/* Modal Panel */}
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0, y: 15 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.95, opacity: 0, y: 15 }}
+              transition={{ type: "spring", stiffness: 300, damping: 25 }}
+              className="relative w-full max-w-[400px] bg-surface-container-lowest border border-white/20 dark:border-white/8 shadow-modal rounded-xl p-6 md:p-8 flex flex-col gap-5 overflow-hidden z-10 font-sans outline-none"
+              role="dialog"
+              aria-modal="true"
+            >
+              {/* Decorative subtle ambient radial glows */}
+              <div className="absolute -top-16 -left-16 w-52 h-52 bg-primary/8 dark:bg-primary/15 rounded-full blur-[64px] pointer-events-none" />
+              <div className="absolute -bottom-16 -right-16 w-52 h-52 bg-secondary/8 dark:bg-secondary/15 rounded-full blur-[64px] pointer-events-none" />
+
+              {/* Close Button X */}
+              <button
+                onClick={() => setShowAgentModal(false)}
+                className="absolute top-5 right-5 text-outline hover:text-on-surface transition-colors p-1.5 rounded-full hover:bg-surface-container-high/60 outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                aria-label="Dismiss guardian modal"
+              >
+                <X className="w-4 h-4" />
+              </button>
+
+              {/* Header Badge & Code Tag */}
+              <div className="flex items-center justify-between relative z-10">
+                <div className="flex items-center space-x-1.5 bg-primary/10 dark:bg-primary/15 text-primary border border-primary/20 px-2.5 py-1 rounded-full text-[10px] font-extrabold tracking-wider uppercase">
+                  <Activity className="w-3 h-3 animate-pulse" />
+                  <span>Agent Loop Active</span>
+                </div>
+                <span className="text-[10px] text-on-surface-variant/60 font-mono font-semibold tracking-wider uppercase">DAEMON: V2.1_SWEEP</span>
+              </div>
+
+              {/* Centered Premium Agent Brand */}
+              <div className="flex flex-col items-center text-center gap-3 relative z-10 my-1">
+                <div className="relative w-14 h-14 bg-gradient-to-br from-primary to-primary-container rounded-2xl flex items-center justify-center shadow-card text-on-primary">
+                  <div className="absolute inset-0 bg-primary/25 rounded-2xl blur-md animate-pulse -z-10" />
+                  <ShieldCheck className="w-8 h-8" />
+                </div>
+                <div className="space-y-1">
+                  <h3 className="text-xl font-extrabold text-on-surface tracking-tight">
+                    FinishLine Guardian
+                  </h3>
+                  <p className="text-[13px] text-on-surface-variant leading-relaxed max-w-[280px]">
+                    Your autonomous schedule agent has completed a background sweep of your commitments.
+                  </p>
+                </div>
+              </div>
+
+              {/* Statistics Grid */}
+              <div className="grid grid-cols-2 gap-3 bg-surface-container-low border border-outline-variant/30 p-4 rounded-xl text-[11px] font-sans relative z-10">
+                <div className="space-y-0.5">
+                  <span className="text-on-surface-variant/80 font-label font-bold text-[10px] uppercase tracking-wider block">
+                    Monitored Tracks
+                  </span>
+                  <span className="text-on-surface font-extrabold text-sm flex items-center gap-1.5 mt-0.5">
+                    <Sparkles className="w-3.5 h-3.5 text-primary" />
+                    {commitments.length} Active
+                  </span>
+                </div>
+                
+                <div className="space-y-0.5">
+                  <span className="text-on-surface-variant/80 font-label font-bold text-[10px] uppercase tracking-wider block">
+                    Stress Load
+                  </span>
+                  <span className="text-on-surface font-extrabold text-sm flex items-center gap-1.5 mt-0.5">
+                    <Activity className="w-3.5 h-3.5 text-secondary" />
+                    {userProfile?.stats?.stressScore ?? 0}%
+                  </span>
+                </div>
+
+                <div className="space-y-0.5">
+                  <span className="text-on-surface-variant/80 font-label font-bold text-[10px] uppercase tracking-wider block">
+                    Burnout Risk
+                  </span>
+                  <span className={`font-extrabold text-sm flex items-center gap-1.5 mt-0.5 ${
+                    (userProfile?.stats?.stressScore ?? 0) > 75 
+                      ? "text-error" 
+                      : (userProfile?.stats?.stressScore ?? 0) > 40 
+                      ? "text-secondary" 
+                      : "text-tertiary"
+                  }`}>
+                    <CheckCircle className="w-3.5 h-3.5" />
+                    {(userProfile?.stats?.stressScore ?? 0) > 75 
+                      ? "High" 
+                      : (userProfile?.stats?.stressScore ?? 0) > 40 
+                      ? "Moderate" 
+                      : "Healthy"}
+                  </span>
+                </div>
+
+                <div className="space-y-0.5">
+                  <span className="text-on-surface-variant/80 font-label font-bold text-[10px] uppercase tracking-wider block">
+                    Last Sweep
+                  </span>
+                  <span className="text-on-surface/80 font-mono font-bold text-xs mt-0.5 block">
+                    Just now (cron)
+                  </span>
+                </div>
+              </div>
+
+              {/* Terminal Logs Viewport */}
+              <div className="bg-surface-container-high/60 dark:bg-surface-container-high/30 p-3.5 rounded-xl border border-outline-variant/20 font-mono text-[11px] text-on-surface-variant/90 space-y-1.5 max-h-[115px] overflow-y-auto scrollbar-thin relative z-10">
+                <div className="flex items-center gap-1.5 text-on-surface-variant/50 font-bold text-[10px] uppercase tracking-wider mb-1">
+                  <Terminal className="w-3.5 h-3.5 text-primary" />
+                  <span>AGENT_SHELL_OUTPUT</span>
+                </div>
+                <div className="flex items-start gap-1">
+                  <span className="text-primary font-bold">▶</span>
+                  <span>Initiating background schedule sweep...</span>
+                </div>
+                <div className="flex items-start gap-1">
+                  <span className="text-primary font-bold">▶</span>
+                  <span>Scanned {commitments.length} active tracks successfully</span>
+                </div>
+                <div className="flex items-start gap-1">
+                  <span className="text-primary font-bold">▶</span>
+                  <span>Synchronized with Google Calendar</span>
+                </div>
+                <div className="flex items-start gap-1">
+                  <span className="text-primary font-bold">▶</span>
+                  <span>Stress Index calculated at {userProfile?.stats?.stressScore ?? 0}%</span>
+                </div>
+                {colliding.length > 0 ? (
+                  <div className="flex items-start gap-1 text-secondary font-semibold">
+                    <span className="text-secondary font-bold">⚠</span>
+                    <span>Warning: Collision flagged on Priority list!</span>
+                  </div>
+                ) : (
+                  <div className="flex items-start gap-1 text-tertiary font-semibold">
+                    <span className="text-tertiary font-bold">✓</span>
+                    <span>System status: Optimal / Green</span>
+                  </div>
+                )}
+              </div>
+
+              {/* Bottom Confirm CTA Button */}
+              <div className="mt-1 relative z-10">
+                <PillButton
+                  variant="primary"
+                  onClick={() => setShowAgentModal(false)}
+                  className="w-full text-sm font-bold shadow-card hover:shadow-lg transition-all duration-200 animate-fade-in"
+                >
+                  Sync & Access Dashboard
+                </PillButton>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </NavShell>
   );
 }

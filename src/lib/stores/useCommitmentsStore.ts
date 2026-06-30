@@ -7,6 +7,8 @@ import {
   query,
   orderBy,
   Unsubscribe,
+  doc,
+  deleteDoc,
 } from "firebase/firestore";
 
 interface CommitmentsStoreState {
@@ -17,6 +19,7 @@ interface CommitmentsStoreState {
   subscribeToCommitments: (userId: string) => Unsubscribe;
   clearCommitments: () => void;
   updateCommitmentOptimistic: (id: string, fields: Partial<Commitment>) => void;
+  deleteCommitment: (userId: string, id: string) => Promise<void>;
 }
 
 export const useCommitmentsStore = create<CommitmentsStoreState>((set) => ({
@@ -66,5 +69,16 @@ export const useCommitmentsStore = create<CommitmentsStoreState>((set) => ({
         c.id === id ? { ...c, ...fields } : c
       ),
     }));
+  },
+
+  deleteCommitment: async (userId: string, id: string) => {
+    try {
+      const docRef = doc(db, "users", userId, "commitments", id);
+      await deleteDoc(docRef);
+    } catch (err: any) {
+      console.error("[useCommitmentsStore] deleteCommitment error:", err);
+      set({ error: err.message || "Failed to delete commitment" });
+      throw err;
+    }
   },
 }));

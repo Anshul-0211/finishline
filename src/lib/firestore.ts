@@ -113,6 +113,8 @@ export async function getUser(userId: string): Promise<UserProfile> {
       totalCommitmentsCreated: Number(data.stats?.totalCommitmentsCreated ?? 0),
       totalCompleted: Number(data.stats?.totalCompleted ?? 0),
       totalMissed: Number(data.stats?.totalMissed ?? 0),
+      burnoutDetected: Boolean(data.stats?.burnoutDetected || false),
+      burnoutLastEvaluatedAt: toISONullable(data.stats?.burnoutLastEvaluatedAt),
     },
     calendarLastFetchedAt: toISONullable(data.calendarLastFetchedAt) as any,
     lastReflectionGeneratedAt: toISONullable(data.lastReflectionGeneratedAt) as any,

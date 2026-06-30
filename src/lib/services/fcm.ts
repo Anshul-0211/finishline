@@ -27,6 +27,15 @@ export async function sendCheckInNotification(
         title: "FinishLine Check-in",
         body: `How is "${title}" going?`,
       },
+      webpush: {
+        notification: {
+          actions: [
+            { action: "complete", title: "Done" },
+            { action: "reschedule", title: "Reschedule" }
+          ],
+          icon: "/vercel.svg"
+        }
+      },
       data: {
         commitmentId,
         action: "checkin",

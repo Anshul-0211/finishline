@@ -13,13 +13,19 @@ import { POST as weeklyReflectionPost } from "../src/app/api/ai/weekly-reflectio
 import { POST as gmailScanPost } from "../src/app/api/ai/gmail/scan/route";
 import { POST as telemetryLogPost } from "../src/app/api/telemetry/log/route";
 import { POST as updateCoefficientsPost } from "../src/app/api/user/update-coefficients/route";
+import { POST as replanOnAddPost } from "../src/app/api/ai/replan-on-add/route";
+import { POST as reallocateBlocksPost } from "../src/app/api/calendar/reallocate-blocks/route";
+import { POST as agentRunPost } from "../src/app/api/agent/run/route";
 
 // Import utilities for new checks
 import { runPatternLearner } from "../src/lib/services/agent/patternLearner";
+import { detectCollisions } from "../src/lib/services/agent/collide";
+import { calculateNextCheckIn } from "../src/lib/services/agent/checkin";
+import { processBurnout } from "../src/lib/services/agent/burnout";
 import { User, Commitment } from "../src/lib/types";
 import { calculateRiskScore } from "../src/lib/utils/risk";
 import { assembleCoreContext } from "../src/lib/ai/context";
-import { buildActionPlanPrompt } from "../src/lib/ai/prompts/actionPlan";
+import { buildActionPlanPrompt, ACTION_PLAN_SYSTEM_INSTRUCTION } from "../src/lib/ai/prompts/actionPlan";
 
 // Import Zod schemas
 import { ActionPlanSchema } from "../src/lib/ai/schemas/actionPlan";
@@ -29,6 +35,7 @@ import { RenegotiationSchema } from "../src/lib/ai/schemas/renegotiation";
 import { WeeklyPlanSchema } from "../src/lib/ai/schemas/weeklyPlan";
 import { WeeklyReflectionSchema } from "../src/lib/ai/schemas/weeklyReflection";
 import { gmailSuggestionSchema } from "../src/lib/ai/schemas/gmailSuggestion";
+import { ReplanOnAddSchema } from "../src/lib/ai/schemas/replanOnAdd";
 
 // ANSI Terminal Colors
 const green = (s: string) => `\x1b[32m${s}\x1b[0m`;
@@ -55,11 +62,15 @@ export async function run() {
     layer7: { name: "API Route Validation", passed: false, checks: [] as CheckResult[] },
     layer8: { name: "End-to-End Demo Flow", passed: false, checks: [] as CheckResult[] },
     layer9: { name: "Personalization & Telemetry", passed: false, checks: [] as CheckResult[] },
-    layer10: { name: "Learning Engine & Adaptive Planning", passed: false, checks: [] as CheckResult[] }
+    layer10: { name: "Learning Engine & Adaptive Planning", passed: false, checks: [] as CheckResult[] },
+    layer11: { name: "Dynamic Replanning & Event Handling", passed: false, checks: [] as CheckResult[] },
+    layer12: { name: "Autonomous Background Agents", passed: false, checks: [] as CheckResult[] }
   };
 
   const warnings: string[] = [];
   const recommendations: string[] = [];
+
+  process.env.CRON_SECRET = process.env.CRON_SECRET || "mock-token";
 
   // =========================================================================
   // LAYER 1: Environment Check
@@ -413,7 +424,7 @@ export async function run() {
       const result = await gatewayModule.callGateway({
         systemInstruction: "You are an assistant. Reply in JSON conforming to the schema.",
         prompt: sTest.prompt,
-        schema: sTest.schema,
+        schema: sTest.schema as any,
         endpointType: sTest.endpointType
       });
       const latency = Date.now() - start;
@@ -520,6 +531,48 @@ export async function run() {
       },
       schema: z.object({ success: z.boolean(), status: z.string() }),
       requiresReasoning: false
+    },
+    {
+      path: "/api/ai/replan-on-add",
+      handler: replanOnAddPost,
+      body: {
+        userId: "mock-user-id",
+        newCommitmentId: "os-assignment",
+        proposedBlocks: [
+          { start: new Date(Date.now() + 2 * 24 * 3600 * 1000).toISOString(), end: new Date(Date.now() + 2 * 24 * 3600 * 1000 + 2 * 3600 * 1000).toISOString() }
+        ]
+      },
+      schema: ReplanOnAddSchema,
+      requiresReasoning: true
+    },
+    {
+      path: "/api/calendar/reallocate-blocks",
+      handler: reallocateBlocksPost,
+      body: {
+        userId: "mock-user-id",
+        adjustments: [
+          {
+            commitmentId: "os-assignment",
+            originalBlock: { start: new Date().toISOString(), end: new Date().toISOString() },
+            proposedBlock: { start: new Date().toISOString(), end: new Date().toISOString() }
+          }
+        ]
+      },
+      schema: z.object({ success: z.boolean() }),
+      requiresReasoning: false
+    },
+    {
+      path: "/api/agent/run",
+      handler: agentRunPost,
+      body: {},
+      schema: z.object({
+        usersProcessed: z.number(),
+        commitmentsProcessed: z.number(),
+        collisionsDetected: z.number(),
+        checkInsSent: z.number(),
+        errors: z.array(z.string())
+      }),
+      requiresReasoning: false
     }
   ];
 
@@ -551,7 +604,7 @@ export async function run() {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "Authorization": "Bearer mock-token"
+          "Authorization": `Bearer ${rTest.path === "/api/agent/run" ? (process.env.CRON_SECRET || "mock-token") : "mock-token"}`
         },
         body: JSON.stringify(rTest.body)
       });
@@ -995,7 +1048,7 @@ export async function run() {
       completionPercentage: 0,
       scheduledBlocks: [],
       lastCheckInAt: new Date().toISOString() // daysSinceProgress = 0, staleness = 0
-    };
+    } as any;
 
     // Case 1: Academic multiplier = 1.8 -> effort = 18 -> workloadRatio = 18/40 = 0.45 -> risk = 0.45*75 + 25 = 58.75 -> 59
     const score1 = calculateRiskScore(mockCommitment, mockUser);
@@ -1045,7 +1098,7 @@ export async function run() {
     });
 
     // Case 5: Missing all factors -> fallback to 1.0 -> effort = 10 -> workloadRatio = 10/40 = 0.25 -> risk = 0.25*75 + 25 = 43.75 -> 44
-    delete mockUser.learningCoefficients.underestimationFactor;
+    delete (mockUser.learningCoefficients as any).underestimationFactor;
     const score5 = calculateRiskScore(mockCommitment, mockUser);
     const passed5 = score5 === 44;
     results.layer10.checks.push({
@@ -1097,6 +1150,323 @@ export async function run() {
   console.log("");
 
   // =========================================================================
+  // LAYER 11: Dynamic Replanning & Event Handling
+  // =========================================================================
+  console.log(bold("Executing Layer 11: Dynamic Replanning & Event Handling..."));
+
+  try {
+    // 1. Single-Session Event Classification Check (Unit level)
+    const mockContext = {
+      currentDateTime: "2026-06-30T10:00:00.000Z",
+      timezone: "UTC",
+      underestimationFactor: 1.0,
+      domainEffortMultipliers: { personal: 1.0, academic: 1.0 },
+      averageAttentionSpanMinutes: 45,
+      preferredWorkHours: [9, 10, 11, 12, 13, 14, 15, 16],
+      availableSlotsThisWeek: [
+        { start: "2026-06-30T09:00:00.000Z", end: "2026-06-30T17:00:00.000Z" },
+        { start: "2026-07-01T09:00:00.000Z", end: "2026-07-01T17:00:00.000Z" }
+      ],
+      stressScore: 5,
+      activeCommitments: []
+    };
+
+    const singleSessionCommitment = {
+      title: "Dance Practice Session",
+      description: "Scheduled practice at the studio on Wednesday evening.",
+      domain: "personal",
+      effortEstimateHours: 1.5,
+      difficulty: "medium",
+      estimatedCognitiveLoad: "medium",
+      deadline: "2026-07-01T15:00:00.000Z"
+    };
+
+    const prompt1 = buildActionPlanPrompt(singleSessionCommitment, mockContext);
+    const startClassification = Date.now();
+    const resClassification = await gatewayModule.callGateway<any>({
+      systemInstruction: ACTION_PLAN_SYSTEM_INSTRUCTION,
+      prompt: prompt1,
+      schema: ActionPlanSchema as any,
+      endpointType: "action-plan",
+    });
+    const latencyClassification = Date.now() - startClassification;
+
+    const classificationPassed = resClassification.steps.length === 1 && 
+      resClassification.steps[0]?.suggestedTimeSlot?.includes("2026-07-01T15:00:00.000Z");
+
+    results.layer11.checks.push({
+      name: "Single-Session Event Classification Check",
+      passed: classificationPassed,
+      message: classificationPassed
+        ? `Correctly classified single-session event: steps=${resClassification.steps.length}, slot=${resClassification.steps[0]?.suggestedTimeSlot}.`
+        : `Classification mismatch. Steps: ${resClassification.steps.length} (expected 1), Slot: ${resClassification.steps[0]?.suggestedTimeSlot} (expected to include 2026-07-01T15:00:00.000Z).`,
+      latency: latencyClassification
+    });
+
+    // 2. Reallocate Blocks API Success Check (Integration level)
+    const mockReallocReq = new NextRequest("http://localhost:3000/api/calendar/reallocate-blocks", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": "Bearer mock-token"
+      },
+      body: JSON.stringify({
+        userId: "mock-user-id",
+        adjustments: [
+          {
+            commitmentId: "os-assignment",
+            originalBlock: { start: "2026-06-30T10:00:00.000Z", end: "2026-06-30T12:00:00.000Z" },
+            proposedBlock: { start: "2026-06-30T13:00:00.000Z", end: "2026-06-30T15:00:00.000Z" }
+          }
+        ]
+      })
+    });
+    const reallocStart = Date.now();
+    const reallocRes = await reallocateBlocksPost(mockReallocReq);
+    const reallocLatency = Date.now() - reallocStart;
+    const reallocJson = await reallocRes.json();
+    const reallocPassed = reallocRes.status === 200 && reallocJson.success === true;
+
+    results.layer11.checks.push({
+      name: "Reallocate Blocks API Success Check",
+      passed: reallocPassed,
+      message: reallocPassed
+        ? `Successfully reallocated calendar blocks in database and updated Firestore.`
+        : `Reallocate blocks failed. Status: ${reallocRes.status}, body: ${JSON.stringify(reallocJson)}`,
+      latency: reallocLatency
+    });
+
+    // 3. Replan-on-Add API Success Check (AI route level)
+    const mockReplanReq = new NextRequest("http://localhost:3000/api/ai/replan-on-add", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": "Bearer mock-token"
+      },
+      body: JSON.stringify({
+        userId: "mock-user-id",
+        newCommitmentId: "os-assignment",
+        proposedBlocks: [
+          { start: "2026-07-02T10:00:00.000Z", end: "2026-07-02T12:00:00.000Z" }
+        ]
+      })
+    });
+    const replanStart = Date.now();
+    const replanRes = await replanOnAddPost(mockReplanReq);
+    const replanLatency = Date.now() - replanStart;
+    const replanJson = await replanRes.json();
+    const replanParsed = ReplanOnAddSchema.safeParse(replanJson);
+    const replanPassed = replanRes.status === 200 && replanParsed.success;
+
+    results.layer11.checks.push({
+      name: "Replan-on-Add API Success Check",
+      passed: replanPassed,
+      message: replanPassed
+        ? `Successfully generated replan suggestion. Conflicts avoided: ${replanJson.conflictsAvoided?.join(", ") || "none"}.`
+        : `Replan-on-Add check failed. Status: ${replanRes.status}, errors: ${JSON.stringify(replanParsed.success ? {} : replanParsed.error.format())}`,
+      latency: replanLatency
+    });
+
+  } catch (err: any) {
+    results.layer11.checks.push({
+      name: "Dynamic Replanning Layer Execution Check",
+      passed: false,
+      message: `Layer 11 crashed: ${err.message || err}`
+    });
+  }
+
+  results.layer11.passed = results.layer11.checks.every(c => c.passed);
+  console.log(results.layer11.passed ? green("✓ Layer 11 Passed") : red("✗ Layer 11 Failed"));
+  console.log("");
+
+  // =========================================================================
+  // LAYER 12: Autonomous Background Agents
+  // =========================================================================
+  console.log(bold("Executing Layer 12: Autonomous Background Agents..."));
+
+  try {
+    // 1. Dynamic Check-In Schedule Calculation
+    const now = Date.now();
+    const d1 = calculateNextCheckIn(now + 10 * 24 * 3600 * 1000);
+    const h1 = Math.round((d1.getTime() - now) / (3600 * 1000));
+
+    const d2 = calculateNextCheckIn(now + 5 * 24 * 3600 * 1000);
+    const h2 = Math.round((d2.getTime() - now) / (3600 * 1000));
+
+    const d3 = calculateNextCheckIn(now + 2 * 24 * 3600 * 1000);
+    const h3 = Math.round((d3.getTime() - now) / (3600 * 1000));
+
+    const d4 = calculateNextCheckIn(now + 12 * 3600 * 1000);
+    const h4 = Math.round((d4.getTime() - now) / (3600 * 1000));
+
+    const checkinPassed = h1 === 48 && h2 === 24 && h3 === 12 && h4 === 4;
+    results.layer12.checks.push({
+      name: "Dynamic Check-In Schedule Calculation",
+      passed: checkinPassed,
+      message: checkinPassed
+        ? `Dynamic intervals verified: 10d left -> ${h1}h (expected 48), 5d left -> ${h2}h (expected 24), 2d left -> ${h3}h (expected 12), 12h left -> ${h4}h (expected 4).`
+        : `Dynamic interval mismatch. Got intervals: ${h1}h, ${h2}h, ${h3}h, ${h4}h.`
+    });
+
+    // 2. Collision Detection Logic Check
+    const baseDate = new Date();
+    baseDate.setDate(baseDate.getDate() + 1);
+    baseDate.setHours(11, 30, 0, 0);
+
+    const blockCalendarOverlap = {
+      start: baseDate.toISOString(),
+      end: new Date(baseDate.getTime() + 3600 * 1000).toISOString() // overlaps 12:00 - 2:00 PM busy periods
+    };
+
+    baseDate.setHours(15, 0, 0, 0);
+    const blockCommitment1 = {
+      start: baseDate.toISOString(),
+      end: new Date(baseDate.getTime() + 3600 * 1000).toISOString()
+    };
+
+    const blockCommitment2 = {
+      start: new Date(baseDate.getTime() + 1800 * 1000).toISOString(), // overlaps 3:30 - 4:30
+      end: new Date(baseDate.getTime() + 5400 * 1000).toISOString()
+    };
+
+    const mockCommitments: Commitment[] = [
+      {
+        id: "commitment-a",
+        title: "Calendar Overlapping Commitment",
+        description: "",
+        domain: "academic",
+        deadline: new Date(Date.now() + 5 * 24 * 3600 * 1000).toISOString(),
+        isLongTermGoal: false,
+        effortEstimateHours: 1,
+        priority: "high",
+        status: "active",
+        scheduledBlocks: [blockCalendarOverlap],
+        riskScore: 0,
+        riskTrend: "stable",
+        completionPercentage: 0,
+        lastCheckInAt: new Date().toISOString()
+      },
+      {
+        id: "commitment-b",
+        title: "Overlapping Commitment B",
+        description: "",
+        domain: "personal",
+        deadline: new Date(Date.now() + 5 * 24 * 3600 * 1000).toISOString(),
+        isLongTermGoal: false,
+        effortEstimateHours: 1,
+        priority: "high",
+        status: "active",
+        scheduledBlocks: [blockCommitment1],
+        riskScore: 0,
+        riskTrend: "stable",
+        completionPercentage: 0,
+        lastCheckInAt: new Date().toISOString()
+      },
+      {
+        id: "commitment-c",
+        title: "Overlapping Commitment C",
+        description: "",
+        domain: "personal",
+        deadline: new Date(Date.now() + 5 * 24 * 3600 * 1000).toISOString(),
+        isLongTermGoal: false,
+        effortEstimateHours: 1,
+        priority: "high",
+        status: "active",
+        scheduledBlocks: [blockCommitment2],
+        riskScore: 0,
+        riskTrend: "stable",
+        completionPercentage: 0,
+        lastCheckInAt: new Date().toISOString()
+      }
+    ] as any;
+
+    const collisions = await detectCollisions("mock-user-id", mockCommitments);
+    const hasCalCollision = collisions.some(c => c.commitmentId === "commitment-a" && c.conflictType === "calendar");
+    const hasCommitmentCollisionB = collisions.some(c => c.commitmentId === "commitment-b" && c.conflictType === "commitment" && c.collidingCommitmentIds.includes("commitment-c"));
+    const hasCommitmentCollisionC = collisions.some(c => c.commitmentId === "commitment-c" && c.conflictType === "commitment" && c.collidingCommitmentIds.includes("commitment-b"));
+    const collidePassed = hasCalCollision && hasCommitmentCollisionB && hasCommitmentCollisionC;
+
+    results.layer12.checks.push({
+      name: "Collision Detection Logic Check",
+      passed: collidePassed,
+      message: collidePassed
+        ? `Successfully identified calendar and commitment collisions. Calendar conflict details: "${collisions.find(c => c.commitmentId === "commitment-a")?.conflictDetails}".`
+        : `Collision detection logic failed. Detected: ${JSON.stringify(collisions)}`
+    });
+
+    // 3. Burnout Condition Threshold Trigger
+    const mockUser: User = {
+      uid: "mock-user-id",
+      email: "mock@example.com",
+      displayName: "Mock User",
+      photoURL: "",
+      preferences: { defaultDomain: "academic", notificationsEnabled: true, fcmToken: "", theme: "dark" },
+      stats: {
+        stressScore: 80,
+        currentStreak: 0,
+        longestStreak: 0,
+        totalCommitmentsCreated: 0,
+        totalCompleted: 0,
+        totalMissed: 0
+      },
+      learningCoefficients: { underestimationFactor: 1.2, preferredWorkHours: [9, 10], lastUpdated: null },
+      googleRefreshToken: "",
+      googleAccessToken: "",
+      createdAt: new Date().toISOString(),
+      lastActiveAt: new Date().toISOString()
+    };
+
+    const burnoutHighStress = await processBurnout(mockUser, []);
+    mockUser.stats.stressScore = 50;
+    const burnoutLowStats = await processBurnout(mockUser, []);
+
+    const commitmentsWithRenegotiation: Commitment[] = [
+      {
+        id: "commitment-x",
+        title: "Renegotiated Commitment",
+        description: "",
+        domain: "academic",
+        deadline: new Date(Date.now() + 5 * 24 * 3600 * 1000).toISOString(),
+        isLongTermGoal: false,
+        effortEstimateHours: 1,
+        priority: "high",
+        status: "active",
+        scheduledBlocks: [],
+        riskScore: 0,
+        riskTrend: "stable",
+        completionPercentage: 0,
+        lastCheckInAt: new Date().toISOString(),
+        renegotiationHistory: [
+          { at: new Date().toISOString(), reason: "Busy" },
+          { at: new Date(Date.now() - 24 * 3600 * 1000).toISOString(), reason: "Busy" },
+          { at: new Date(Date.now() - 2 * 24 * 3600 * 1000).toISOString(), reason: "Busy" }
+        ]
+      }
+    ] as any;
+    const burnoutRenegotiation = await processBurnout(mockUser, commitmentsWithRenegotiation);
+    const burnoutPassed = burnoutHighStress === true && burnoutLowStats === false && burnoutRenegotiation === true;
+
+    results.layer12.checks.push({
+      name: "Burnout Condition Threshold Trigger",
+      passed: burnoutPassed,
+      message: burnoutPassed
+        ? `Burnout triggers verified: High Stress (>75) -> ${burnoutHighStress}, Low Stats -> ${burnoutLowStats}, High Renegotiations (>2) -> ${burnoutRenegotiation}.`
+        : `Burnout logic check failed. High Stress: ${burnoutHighStress}, Low Stats: ${burnoutLowStats}, Renegotiations: ${burnoutRenegotiation}.`
+    });
+
+  } catch (err: any) {
+    results.layer12.checks.push({
+      name: "Autonomous Background Agents Layer Execution Check",
+      passed: false,
+      message: `Layer 12 crashed: ${err.message || err}`
+    });
+  }
+
+  results.layer12.passed = results.layer12.checks.every(c => c.passed);
+  console.log(results.layer12.passed ? green("✓ Layer 12 Passed") : red("✗ Layer 12 Failed"));
+  console.log("");
+
+  // =========================================================================
   // PRINT SUMMARY REPORT
   // =========================================================================
   console.log("\n========================================================================");
@@ -1115,6 +1485,8 @@ export async function run() {
   console.log(`End-to-End Demo Flow:   [ ${printStatus(results.layer8.passed)} ]`);
   console.log(`Personalization & Tel:  [ ${printStatus(results.layer9.passed)} ]`);
   console.log(`Learning Engine & Adapt: [ ${printStatus(results.layer10.passed)} ]`);
+  console.log(`Dynamic Replan & Event:  [ ${printStatus(results.layer11.passed)} ]`);
+  console.log(`Autonomous Background:   [ ${printStatus(results.layer12.passed)} ]`);
   console.log("------------------------------------------------------------------------");
 
   // Summarize overall stats
@@ -1124,7 +1496,7 @@ export async function run() {
   const allLayers = [
     results.layer1, results.layer2, results.layer3, results.layer4, 
     results.layer5, results.layer6, results.layer7, results.layer8, 
-    results.layer9, results.layer10
+    results.layer9, results.layer10, results.layer11, results.layer12
   ];
   
   for (const layer of allLayers) {
@@ -1134,6 +1506,17 @@ export async function run() {
 
   const overallHealthy = passedChecks === totalChecks;
   console.log(`Overall Health:         ${overallHealthy ? green("HEALTHY") : red("UNHEALTHY")} (${passedChecks}/${totalChecks} checks passed)`);
+  
+  if (!overallHealthy) {
+    console.log(red("\nFailed Checks Details:"));
+    for (const layer of allLayers) {
+      for (const check of layer.checks) {
+        if (!check.passed) {
+          console.log(red(` - [${layer.name}] ${check.name}: ${check.message}`));
+        }
+      }
+    }
+  }
   console.log("========================================================================");
 
   if (warnings.length > 0) {

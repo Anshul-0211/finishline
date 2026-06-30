@@ -69,8 +69,8 @@ export async function runPatternLearner(userId: string, user: User): Promise<boo
       .get();
 
     const completedRecently = snap.docs
-      .map(doc => ({ id: doc.id, ...doc.data() } as Commitment))
-      .filter(c => getMillis(c.updatedAt) >= twentyFourHoursAgo);
+      .map((doc: any) => ({ id: doc.id, ...doc.data() } as Commitment))
+      .filter((c: any) => getMillis(c.updatedAt) >= twentyFourHoursAgo);
 
     if (completedRecently.length === 0) {
       console.log(`[Pattern Learner] No commitments completed in the last 24h for user: ${userId}. Skipping update.`);

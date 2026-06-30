@@ -13,7 +13,20 @@ import { CommitmentCard } from "@/components/commitment-card";
 export default function CommitmentsPage() {
   const router = useRouter();
   const { user, setUser, userProfile } = useUserStore();
-  const { commitments, subscribeToCommitments } = useCommitmentsStore();
+  const { commitments, subscribeToCommitments, deleteCommitment } = useCommitmentsStore();
+
+  const handleDeleteCommitment = async (commitmentId: string) => {
+    if (!user) return;
+    const confirmed = window.confirm("Are you sure you want to delete this commitment?");
+    if (confirmed) {
+      try {
+        await deleteCommitment(user.uid, commitmentId);
+      } catch (err) {
+        console.error("Failed to delete commitment:", err);
+        alert("Failed to delete commitment. Please try again.");
+      }
+    }
+  };
 
   // Auth Guard
   useEffect(() => {
@@ -76,6 +89,7 @@ export default function CommitmentsPage() {
                 riskTrend={commitment.riskTrend || "stable"}
                 onFocusClick={() => router.push(`/focus/${commitment.id}`)}
                 onWhyClick={() => router.push("/dashboard")}
+                onDeleteClick={() => handleDeleteCommitment(commitment.id)}
               />
             ))
           )}

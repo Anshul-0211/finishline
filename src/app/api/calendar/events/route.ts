@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getCalendarClient } from "@/lib/services/calendar";
+import { getCalendarClient, isGoogleCalendarConnected } from "@/lib/services/calendar";
 
 export const dynamic = "force-dynamic";
 
@@ -45,6 +45,14 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
       return NextResponse.json(
         { error: "Invalid timeMin or timeMax — must be valid ISO 8601 strings" },
         { status: 400 }
+      );
+    }
+
+    const connected = await isGoogleCalendarConnected(userId);
+    if (!connected) {
+      return NextResponse.json(
+        { error: "Google Calendar not connected", details: "No refresh token found" },
+        { status: 401 }
       );
     }
 

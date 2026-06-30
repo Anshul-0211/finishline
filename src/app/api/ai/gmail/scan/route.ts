@@ -4,6 +4,8 @@ import { callGateway } from "@/lib/ai/gateway";
 import { gmailSuggestionSchema, GmailSuggestion } from "@/lib/ai/schemas/gmailSuggestion";
 import { buildGmailClassifierPrompt, GMAIL_CLASSIFIER_SYSTEM_INSTRUCTION } from "@/lib/ai/prompts/gmailClassifier";
 import { verifyAuth } from "@/lib/auth/authVerification";
+import { adminDb } from "@/lib/firebase/admin";
+import { resolveUserTimezone } from "@/lib/ai/timezone";
 
 function sanitizeGmailSuggestion(parsed: any, originalMsg: { id: string; subject: string; from: string }): any {
   if (!parsed || typeof parsed !== "object") {
@@ -74,12 +76,20 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     }
 
     const suggestions: any[] = [];
-    const today = new Date().toISOString().split("T")[0]; // YYYY-MM-DD
+    
+    // Retrieve user's timezone from preferences
+    const timezone = await resolveUserTimezone(userId);
 
-    console.log(`[Gmail Scan] Running AI classification for ${emails.length} emails...`);
+    const todayDate = new Date();
+    const todayStr = todayDate.toLocaleDateString("en-CA", { timeZone: timezone }); // YYYY-MM-DD in user's timezone
+    const weekday = todayDate.toLocaleDateString("en-US", { timeZone: timezone, weekday: "long" }); // e.g. Tuesday
+    const fullDateName = todayDate.toLocaleDateString("en-US", { timeZone: timezone, year: "numeric", month: "long", day: "numeric" }); // e.g., June 30, 2026
+    const today = `${weekday}, ${fullDateName} (${todayStr})`; // e.g., Tuesday, June 30, 2026 (2026-06-30)
+
+    console.log(`[Gmail Scan] Running AI classification for ${emails.length} emails in timezone ${timezone}...`);
     for (const email of emails) {
       try {
-        const prompt = buildGmailClassifierPrompt(email.id, email.subject, email.from, email.body, today);
+        const prompt = buildGmailClassifierPrompt(email.id, email.subject, email.from, email.body, today, timezone);
         
         const result = await callGateway({
           systemInstruction: GMAIL_CLASSIFIER_SYSTEM_INSTRUCTION,

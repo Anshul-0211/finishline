@@ -19,6 +19,7 @@ export interface CoreLifeContext {
     completionPercentage: number;
     remainingEffortHours: number;
     scheduledBlocks: TimeSlot[];
+    priority?: 'critical' | 'high' | 'medium' | 'low';
   }[];
   stressScore: number;
   totalActiveCommitments: number;
@@ -32,6 +33,7 @@ export interface CoreLifeContext {
 }
 
 export interface ExtendedLifeContext extends CoreLifeContext {
+  burnoutDetected?: boolean;
   recentCompletionRate: number;
   avgUnderestimation: number;
   mostProductiveDomain: string;

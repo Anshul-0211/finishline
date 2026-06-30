@@ -35,6 +35,8 @@ export interface UserStats {
   longestStreak: number;
   totalCommitmentsCreated: number;
   totalCompleted: number;
+  burnoutDetected?: boolean;
+  burnoutLastEvaluatedAt?: string | null;
 
   // Backward compatibility fields
   totalMissed: number;

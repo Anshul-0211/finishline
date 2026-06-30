@@ -172,20 +172,21 @@ export const useUserStore = create<UserState>((set, get) => ({
       const { accessToken } = credential;
       const userObj = result.user;
       const refreshToken = (result as any)._tokenResponse?.oauthRefreshToken || "";
+      const idToken = await userObj.getIdToken();
 
       const res = await fetch("/api/auth/save-tokens", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
+          "Authorization": `Bearer ${idToken}`,
         },
         body: JSON.stringify({
-          uid: userObj.uid,
+          userId: userObj.uid,
           email: userObj.email,
           displayName: userObj.displayName,
           photoURL: userObj.photoURL,
-          accessToken,
-          refreshToken,
-          tokenExpiry: (userObj as any).stsTokenManager?.expirationTime,
+          calendarRefreshToken: refreshToken || accessToken || "",
+          gmailRefreshToken: refreshToken || accessToken || "",
         }),
       });
 
@@ -208,20 +209,21 @@ export const useUserStore = create<UserState>((set, get) => ({
     try {
       const result = await signInWithEmailAndPassword(auth, email, password);
       const userObj = result.user;
+      const idToken = await userObj.getIdToken();
 
       const res = await fetch("/api/auth/save-tokens", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
+          "Authorization": `Bearer ${idToken}`,
         },
         body: JSON.stringify({
-          uid: userObj.uid,
+          userId: userObj.uid,
           email: userObj.email,
           displayName: userObj.displayName || email.split("@")[0],
           photoURL: userObj.photoURL || "",
-          accessToken: "",
-          refreshToken: "",
-          tokenExpiry: null,
+          calendarRefreshToken: "",
+          gmailRefreshToken: "",
         }),
       });
 
@@ -246,20 +248,21 @@ export const useUserStore = create<UserState>((set, get) => ({
       const userObj = result.user;
 
       await updateProfile(userObj, { displayName });
+      const idToken = await userObj.getIdToken();
 
       const res = await fetch("/api/auth/save-tokens", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
+          "Authorization": `Bearer ${idToken}`,
         },
         body: JSON.stringify({
-          uid: userObj.uid,
+          userId: userObj.uid,
           email: userObj.email,
           displayName,
           photoURL: "",
-          accessToken: "",
-          refreshToken: "",
-          tokenExpiry: null,
+          calendarRefreshToken: "",
+          gmailRefreshToken: "",
         }),
       });
 

@@ -9,6 +9,7 @@ import { ref, uploadBytesResumable, getDownloadURL } from "firebase/storage";
 import { auth } from "@/lib/firebase/client";
 import { storage } from "@/lib/firebase";
 import { useUserStore } from "@/lib/stores/useUserStore";
+import { useCommitmentsStore } from "@/lib/stores/useCommitmentsStore";
 import { NavShell } from "@/components/nav-shell";
 import { AmberReviewBanner } from "@/components/ui/amber-review-banner";
 import { PillButton } from "@/components/ui/pill-button";
@@ -81,10 +82,28 @@ interface ActionPlanResponse {
 
 export default function AddCommitmentPage() {
   const router = useRouter();
-  const { user, setUser, userProfile } = useUserStore();
+  const { user, setUser, userProfile, subscribeToUserProfile } = useUserStore();
+  const { commitments, subscribeToCommitments } = useCommitmentsStore();
 
   // Tab State
   const [activeTab, setActiveTab] = useState<"text" | "file">("text");
+
+  // Replanning modal states
+  const [replanModalOpen, setReplanModalOpen] = useState(false);
+  const [replanSummary, setReplanSummary] = useState("");
+  const [pendingAdjustments, setPendingAdjustments] = useState<any[]>([]);
+  const [pendingBlocks, setPendingBlocks] = useState<any[]>([]);
+
+  // Firestore User Profile & Commitments Subscription
+  useEffect(() => {
+    if (!user) return;
+    const unsubProfile = subscribeToUserProfile(user.uid);
+    const unsubCommitments = subscribeToCommitments(user.uid);
+    return () => {
+      unsubProfile();
+      unsubCommitments();
+    };
+  }, [user, subscribeToUserProfile, subscribeToCommitments]);
 
   // Text/Voice states
   const [inputText, setInputText] = useState("");
@@ -237,13 +256,14 @@ export default function AddCommitmentPage() {
     try {
       const idToken = await user.getIdToken();
       console.log("[Frontend] Fetching /api/ai/extract-text...");
+      const userTimezone = userProfile?.preferences?.timezone || (typeof Intl !== "undefined" && Intl.DateTimeFormat().resolvedOptions().timeZone) || "Asia/Kolkata";
       const res = await fetch("/api/ai/extract-text", {
         method: "POST",
         headers: { 
           "Content-Type": "application/json",
           "Authorization": `Bearer ${idToken}`
         },
-        body: JSON.stringify({ userId: user.uid, input: inputText }),
+        body: JSON.stringify({ userId: user.uid, input: inputText, timezone: userTimezone }),
       });
       console.log("[Frontend] /api/ai/extract-text response status:", res.status);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -281,13 +301,14 @@ export default function AddCommitmentPage() {
     try {
       const idToken = await user.getIdToken();
       console.log("[Frontend] Fetching /api/ai/extract-voice...");
+      const userTimezone = userProfile?.preferences?.timezone || (typeof Intl !== "undefined" && Intl.DateTimeFormat().resolvedOptions().timeZone) || "Asia/Kolkata";
       const res = await fetch("/api/ai/extract-voice", {
         method: "POST",
         headers: { 
           "Content-Type": "application/json",
           "Authorization": `Bearer ${idToken}`
         },
-        body: JSON.stringify({ userId: user.uid, transcript }),
+        body: JSON.stringify({ userId: user.uid, transcript, timezone: userTimezone }),
       });
       console.log("[Frontend] /api/ai/extract-voice response status:", res.status);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -320,7 +341,7 @@ export default function AddCommitmentPage() {
 
   // Confirm Extraction & Generate Action Plan Handler
   const handleConfirmExtraction = async (index: number) => {
-    const item = extractionDataList[index];
+    const item = extractionDataList[index] as any;
     console.log("[Frontend] handleConfirmExtraction triggered. Index:", index, "Item:", item, "User state:", user);
     if (!item || !user) {
       console.warn("[Frontend] handleConfirmExtraction aborted: item or user missing.");
@@ -351,6 +372,11 @@ export default function AddCommitmentPage() {
         status: "active",
         completionPercentage: 0,
         createdAt: serverTimestamp() as any,
+        commitmentType: item.commitmentType || "assignment",
+        difficulty: (item.difficulty === "expert" ? "hard" : item.difficulty) || "medium",
+        estimatedCognitiveLoad: item.estimatedCognitiveLoad || "medium",
+        recommendedSessions: item.recommendedSessions || 1,
+        stakeholderImportance: (item.stakeholderImportance === "critical" ? "high" : item.stakeholderImportance) || "medium",
       });
       console.log("[Frontend] Firestore commitment successfully created with ID:", commitmentId);
       setSavedCommitmentId(commitmentId);
@@ -386,18 +412,9 @@ export default function AddCommitmentPage() {
   const handleAcceptPlan = async () => {
     if (!savedCommitmentId || !planData || !user) return;
     setPlanLoading(true);
+    setPlanError(null);
     try {
-      // 1. Save action plan to Firestore
-      await updateCommitment(savedCommitmentId, {
-        actionPlan: {
-          steps: planData.steps.map((s) => ({ ...s, completed: false })),
-          totalMinutes: planData.totalMinutes,
-          generatedAt: serverTimestamp() as any,
-        },
-        status: "active",
-      });
-
-      // 2. Map action plan steps to scheduled blocks for Google Calendar
+      // 1. Map action plan steps to scheduled blocks for Google Calendar
       const blocks = planData.steps
         .filter((s) => s.suggestedTimeSlot)
         .map((s) => {
@@ -409,56 +426,165 @@ export default function AddCommitmentPage() {
           };
         });
 
+      setPendingBlocks(blocks);
       const idToken = await user.getIdToken();
 
       if (blocks.length > 0) {
-        console.log(`[Frontend] Writing ${blocks.length} blocks to Google Calendar...`);
-        const writeRes = await fetch("/api/calendar/write-blocks", {
+        // Trigger Dynamic Replanning Check
+        console.log("[Frontend] Checking scheduling collisions via /api/ai/replan-on-add...");
+        const replanRes = await fetch("/api/ai/replan-on-add", {
           method: "POST",
-          headers: { 
+          headers: {
             "Content-Type": "application/json",
             "Authorization": `Bearer ${idToken}`
           },
           body: JSON.stringify({
             userId: user.uid,
-            commitmentId: savedCommitmentId,
-            blocks,
-          }),
+            newCommitmentId: savedCommitmentId,
+            proposedBlocks: blocks
+          })
         });
-        if (!writeRes.ok) {
-          console.warn("[Frontend] Failed to write action plan blocks to Google Calendar.");
+
+        if (replanRes.ok) {
+          const replanDataJson = await replanRes.json();
+          if (replanDataJson.adjustments && replanDataJson.adjustments.length > 0) {
+            console.log("[Frontend] Scheduling collisions detected, opening review gating modal.");
+            setPendingAdjustments(replanDataJson.adjustments);
+            setReplanSummary(replanDataJson.summary);
+            setReplanModalOpen(true);
+            setPlanLoading(false);
+            return; // Gate write blocks until user choice
+          }
+        } else {
+          console.warn("[Frontend] Replan-on-add request failed, falling back to direct write.");
         }
+
+        // Direct write fallback if no adjustments exist
+        await writeNewBlocksDirect(idToken, blocks);
       }
 
-      // 3. Automatically trigger a calendar sync to calculate collisions and update stats immediately
-      console.log("[Frontend] Triggering post-add calendar sync...");
-      await fetch("/api/calendar/sync", {
+      await finalizeAndSync(idToken);
+    } catch (e: any) {
+      console.error("[Frontend] handleAcceptPlan failed:", e);
+      setPlanError(e.message ?? "Plan acceptance failed. Try again.");
+    } finally {
+      setPlanLoading(false);
+    }
+  };
+
+  const writeNewBlocksDirect = async (idToken: string, blocks: any[]) => {
+    if (!user) return;
+    console.log(`[Frontend] Writing ${blocks.length} blocks to Google Calendar...`);
+    const writeRes = await fetch("/api/calendar/write-blocks", {
+      method: "POST",
+      headers: { 
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${idToken}`
+      },
+      body: JSON.stringify({
+        userId: user.uid,
+        commitmentId: savedCommitmentId,
+        blocks,
+      }),
+    });
+    if (!writeRes.ok) {
+      console.warn("[Frontend] Failed to write action plan blocks to Google Calendar.");
+    }
+  };
+
+  const handleConfirmAdjustments = async () => {
+    if (!savedCommitmentId || !planData || !user) return;
+    setPlanLoading(true);
+    setReplanModalOpen(false);
+    try {
+      const idToken = await user.getIdToken();
+
+      // 1. Reallocate existing blocks
+      console.log(`[Frontend] Reallocating ${pendingAdjustments.length} calendar slots...`);
+      const reallocRes = await fetch("/api/calendar/reallocate-blocks", {
         method: "POST",
-        headers: { 
+        headers: {
           "Content-Type": "application/json",
           "Authorization": `Bearer ${idToken}`
         },
-        body: JSON.stringify({ userId: user.uid }),
+        body: JSON.stringify({
+          userId: user.uid,
+          adjustments: pendingAdjustments
+        })
       });
-
-      const indexToRemove = confirmingIndex !== null ? confirmingIndex : 0;
-      const remaining = extractionDataList.filter((_, idx) => idx !== indexToRemove);
-      setExtractionDataList(remaining);
-
-      // Reset planning view variables
-      setPlanData(null);
-      setSavedCommitmentId(null);
-      setConfirmingIndex(null);
-      setEditingIndex(null);
-
-      // If no cards left to review, redirect back to dashboard
-      if (remaining.length === 0) {
-        router.push("/dashboard");
+      if (!reallocRes.ok) {
+        console.warn("[Frontend] Reallocate blocks request failed.");
       }
+
+      // 2. Write new blocks
+      await writeNewBlocksDirect(idToken, pendingBlocks);
+
+      // 3. Finalize and sync
+      await finalizeAndSync(idToken);
     } catch (e: any) {
-      setPlanError(e.message ?? "Failed to save action plan.");
+      console.error("[Frontend] handleConfirmAdjustments failed:", e);
+      setPlanError(e.message ?? "Failed to save plan adjustments.");
     } finally {
       setPlanLoading(false);
+    }
+  };
+
+  const handleKeepCurrent = async () => {
+    if (!savedCommitmentId || !planData || !user) return;
+    setPlanLoading(true);
+    setReplanModalOpen(false);
+    try {
+      const idToken = await user.getIdToken();
+
+      // 1. Write new blocks direct
+      await writeNewBlocksDirect(idToken, pendingBlocks);
+
+      // 2. Finalize and sync
+      await finalizeAndSync(idToken);
+    } catch (e: any) {
+      console.error("[Frontend] handleKeepCurrent failed:", e);
+      setPlanError(e.message ?? "Failed to save plan.");
+    } finally {
+      setPlanLoading(false);
+    }
+  };
+
+  const finalizeAndSync = async (idToken: string) => {
+    if (!user) return;
+    // Save action plan to Firestore
+    await updateCommitment(savedCommitmentId!, {
+      actionPlan: {
+        steps: planData!.steps.map((s) => ({ ...s, completed: false })),
+        totalMinutes: planData!.totalMinutes,
+        generatedAt: serverTimestamp() as any,
+      },
+      status: "active",
+    });
+
+    // Automatically trigger a calendar sync to calculate collisions and update stats immediately
+    console.log("[Frontend] Triggering post-add calendar sync...");
+    await fetch("/api/calendar/sync", {
+      method: "POST",
+      headers: { 
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${idToken}`
+      },
+      body: JSON.stringify({ userId: user.uid }),
+    });
+
+    const indexToRemove = confirmingIndex !== null ? confirmingIndex : 0;
+    const remaining = extractionDataList.filter((_, idx) => idx !== indexToRemove);
+    setExtractionDataList(remaining);
+
+    // Reset planning view variables
+    setPlanData(null);
+    setSavedCommitmentId(null);
+    setPendingAdjustments([]);
+    setPendingBlocks([]);
+
+    // If no cards left to review, redirect back to dashboard
+    if (remaining.length === 0) {
+      router.push("/dashboard");
     }
   };
 
@@ -571,13 +697,14 @@ export default function AddCommitmentPage() {
     console.log("[Frontend] Fetching /api/ai/extract-file with payload:", { userId: user.uid, fileUrl, mimeType });
     try {
       const idToken = await user.getIdToken();
+      const userTimezone = userProfile?.preferences?.timezone || (typeof Intl !== "undefined" && Intl.DateTimeFormat().resolvedOptions().timeZone) || "Asia/Kolkata";
       const res = await fetch("/api/ai/extract-file", {
         method: "POST",
         headers: { 
           "Content-Type": "application/json",
           "Authorization": `Bearer ${idToken}`
         },
-        body: JSON.stringify({ userId: user.uid, fileUrl, mimeType }),
+        body: JSON.stringify({ userId: user.uid, fileUrl, mimeType, timezone: userTimezone }),
       });
       console.log("[Frontend] /api/ai/extract-file status code:", res.status);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -1220,6 +1347,82 @@ export default function AddCommitmentPage() {
             </div>
           </div>
         )}
+        {/* Review Schedule Adjustments Gating Modal */}
+        <AnimatePresence>
+          {replanModalOpen && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-md">
+              <motion.div
+                initial={{ opacity: 0, scale: 0.95, y: 15 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.95, y: 15 }}
+                className="bg-surface-container-lowest rounded-[24px] border border-outline-variant/30 shadow-modal max-w-lg w-full overflow-hidden flex flex-col pt-6 pb-6 px-6 gap-4 font-sans text-wrap"
+                style={{ wordBreak: "break-word" }}
+              >
+                <header className="flex justify-between items-start gap-4">
+                  <div className="flex items-center gap-2">
+                    <Sparkles className="w-5 h-5 text-primary flex-shrink-0" />
+                    <span className="text-base font-bold text-on-surface">
+                      Schedule Optimization
+                    </span>
+                  </div>
+                  <button
+                    onClick={() => setReplanModalOpen(false)}
+                    className="p-1 hover:bg-surface-container-high rounded-full transition-colors"
+                  >
+                    <X className="w-5 h-5 text-outline" />
+                  </button>
+                </header>
+
+                <p className="text-[14px] text-on-surface-variant leading-relaxed">
+                  {replanSummary}
+                </p>
+
+                <div className="flex flex-col gap-3 py-2 max-h-[220px] overflow-y-auto pr-1">
+                  {pendingAdjustments.map((adj, idx) => (
+                    <div
+                      key={idx}
+                      className="bg-surface-container-low border border-outline-variant/20 rounded-xl p-3 flex flex-col gap-1.5 shadow-sm"
+                    >
+                      <span className="text-[10px] font-extrabold text-primary uppercase tracking-widest block">
+                        Shift Recommended
+                      </span>
+                      <div className="text-[14px] font-bold text-on-surface">
+                        {adj.commitmentTitle}
+                      </div>
+                      <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-2 text-[12px] text-on-surface-variant font-label">
+                        <span className="line-through bg-error/10 text-error px-2 py-0.5 rounded">
+                          {new Date(adj.originalBlock.start).toLocaleString()}
+                        </span>
+                        <span className="hidden sm:inline">➔</span>
+                        <span className="bg-tertiary/10 text-tertiary px-2 py-0.5 rounded">
+                          {new Date(adj.proposedBlock.start).toLocaleString()}
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="flex flex-col gap-2 pt-3 border-t border-outline-variant/30">
+                  <PillButton
+                    variant="primary"
+                    onClick={handleConfirmAdjustments}
+                    className="w-full h-11 text-[14px] font-bold"
+                  >
+                    Confirm & Update Calendar
+                  </PillButton>
+                  <PillButton
+                    variant="outline"
+                    onClick={handleKeepCurrent}
+                    className="w-full h-10 text-[13px] font-semibold"
+                  >
+                    Keep Original Slots
+                  </PillButton>
+                </div>
+              </motion.div>
+            </div>
+          )}
+        </AnimatePresence>
+
       </div>
     </NavShell>
   );

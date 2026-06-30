@@ -144,7 +144,7 @@ export async function processCollisions(userId: string, commitments: Commitment[
   const collisionsColRef = adminDb.collection("users").doc(userId).collection("collisions");
   const oldCollisionsSnap = await collisionsColRef.get();
   const batch = adminDb.batch();
-  oldCollisionsSnap.docs.forEach(doc => {
+  oldCollisionsSnap.docs.forEach((doc: any) => {
     batch.delete(doc.ref);
   });
   await batch.commit();

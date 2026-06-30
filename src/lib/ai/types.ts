@@ -4,7 +4,9 @@ export type EndpointType =
   | 'action-plan'
   | 'renegotiation'
   | 'weekly-planning'
-  | 'weekly-reflection';
+  | 'weekly-reflection'
+  | 'replan-cascade';
+
 
 export interface AIResponseMeta {
   confidence: number; // 0.0-1.0
@@ -38,6 +40,7 @@ export interface CoreLifeContext {
     completionPercentage: number;
     remainingEffortHours: number;
     scheduledBlocks: TimeSlot[];
+    priority?: 'critical' | 'high' | 'medium' | 'low';
   }[];
   stressScore: number; // 0-100
   totalActiveCommitments: number;

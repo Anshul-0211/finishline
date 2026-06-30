@@ -6,7 +6,7 @@ import { User, Commitment, firestoreToCommitment } from "@/lib/types";
  */
 export async function getAllActiveUsers(): Promise<User[]> {
   const snap = await adminDb.collection("users").get();
-  return snap.docs.map(doc => ({ uid: doc.id, ...doc.data() } as User));
+  return snap.docs.map((doc: any) => ({ uid: doc.id, ...doc.data() } as User));
 }
 
 /**

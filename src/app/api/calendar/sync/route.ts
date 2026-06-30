@@ -58,7 +58,7 @@ export async function POST(req: NextRequest) {
       .collection("commitments")
       .get();
 
-    const commitments = commitmentsSnap.docs.map((doc) => firestoreToCommitment(doc as any));
+    const commitments = commitmentsSnap.docs.map((doc: any) => firestoreToCommitment(doc as any));
 
     // 3. Update calendarLastFetchedAt on user profile
     await adminDb.collection("users").doc(userId).update({

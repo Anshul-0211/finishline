@@ -49,6 +49,10 @@ const CAPABILITY_CONFIG: Record<EndpointType, { primary: ProviderConfig; fallbac
   'weekly-reflection': {
     primary: { provider: 'gemini', model: 'gemini-2.5-flash', temperature: 0.6 },
     fallback: { provider: 'groq', model: 'llama-3.3-70b-versatile', temperature: 0.1 }
+  },
+  'replan-cascade': {
+    primary: { provider: 'gemini', model: 'gemini-2.5-flash', temperature: 0.4 },
+    fallback: { provider: 'groq', model: 'llama-3.3-70b-versatile', temperature: 0.1 }
   }
 };
 

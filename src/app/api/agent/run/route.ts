@@ -5,6 +5,7 @@ import { processCollisions, detectCollisions } from "@/lib/services/agent/collid
 import { processCheckIns } from "@/lib/services/agent/checkin";
 import { processResurface } from "@/lib/services/agent/resurface";
 import { shouldRunPatternLearner, runPatternLearner } from "@/lib/services/agent/patternLearner";
+import { processBurnout } from "@/lib/services/agent/burnout";
 import { logAgentRun } from "@/lib/services/agent/log";
 import { adminDb } from "@/lib/firebase/admin";
 import { FieldValue } from "firebase-admin/firestore";
@@ -90,6 +91,14 @@ async function handleRun(req: NextRequest): Promise<NextResponse> {
             const msg = err instanceof Error ? err.message : String(err);
             allErrors.push(`Failed Pattern Learner step for user ${user.uid}: ${msg}`);
           }
+        }
+
+        // 5.5. BURNOUT step
+        try {
+          await processBurnout(user, commitments);
+        } catch (err: unknown) {
+          const msg = err instanceof Error ? err.message : String(err);
+          allErrors.push(`Failed Burnout check for user ${user.uid}: ${msg}`);
         }
 
         // 6. Reset dirty flag and set last evaluated timestamp

@@ -55,6 +55,28 @@ export async function getCalendarClient(userId: string) {
 }
 
 /**
+ * Checks if a user is actively connected to Google Calendar.
+ * Returns false if the refresh token is missing, undefined, or explicitly "false" / false.
+ */
+export async function isGoogleCalendarConnected(userId: string): Promise<boolean> {
+  if (process.env.FINISHLINE_VALIDATION_MOCK === "true") {
+    return false;
+  }
+  try {
+    const userDoc = await adminDb.collection("users").doc(userId).get();
+    if (!userDoc.exists) return false;
+    const user = userDoc.data();
+    if (!user) return false;
+    
+    const token = user.googleCalendarRefreshToken || user.googleRefreshToken;
+    return !!(token && token !== "false" && token !== "undefined" && token !== false);
+  } catch (err: unknown) {
+    console.error(`[Calendar] Error checking connection status for user ${userId}:`, err);
+    return false;
+  }
+}
+
+/**
  * Checks and refreshes Google OAuth tokens if expired or close to expiry.
  * (Preserved from reading service, using getCalendarClient for auth checks)
  */
@@ -78,16 +100,17 @@ export async function getCalendarBusyPeriods(userId: string, start: Date, end: D
     return getMockBusyPeriods(start, end);
   }
   try {
+    const connected = await isGoogleCalendarConnected(userId);
+    if (!connected) {
+      console.log(`[Calendar] Google Calendar not connected for user ${userId}. Returning mock busy periods.`);
+      return getMockBusyPeriods(start, end);
+    }
+
     const userDoc = await adminDb.collection("users").doc(userId).get();
     if (!userDoc.exists) {
       return getMockBusyPeriods(start, end);
     }
     const user = userDoc.data() as User;
-    
-    // If no credentials or mock user, fall back to mock busy slots
-    if (!(user as any).googleCalendarRefreshToken && !user.googleRefreshToken && !user.googleAccessToken) {
-      return getMockBusyPeriods(start, end);
-    }
 
     const accessToken = await getValidAccessToken(userId, user);
     if (!accessToken) {
@@ -137,6 +160,11 @@ export async function createCalendarEvent(userId: string, event: any): Promise<s
     return "mock-event-id-" + Math.random().toString(36).substring(2, 9);
   }
   try {
+    const connected = await isGoogleCalendarConnected(userId);
+    if (!connected) {
+      return "local-event-id-" + Math.random().toString(36).substring(2, 9);
+    }
+
     const calendar = await getCalendarClient(userId);
     const userDoc = await adminDb.collection("users").doc(userId).get();
     const calendarId = userDoc.data()?.googleCalendarId || "primary";
@@ -154,7 +182,8 @@ export async function createCalendarEvent(userId: string, event: any): Promise<s
     const errorMsg = err.message || "";
     const errorData = err.response?.data?.error || "";
     if (errorMsg.includes("invalid_grant") || errorData === "invalid_grant" || errorData?.message?.includes("invalid_grant")) {
-      throw new Error("Google refresh token is invalid or expired. Please re-authenticate.");
+      console.warn(`[Calendar] Google token invalid_grant for user ${userId}. Falling back to local ID.`);
+      return "local-event-id-" + Math.random().toString(36).substring(2, 9);
     }
     throw new Error(`Failed to create calendar event: ${err.message}`);
   }
@@ -167,7 +196,15 @@ export async function updateCalendarEvent(userId: string, eventId: string, updat
   if (process.env.FINISHLINE_VALIDATION_MOCK === "true") {
     return;
   }
+  if (!eventId || eventId.startsWith("local-") || eventId.startsWith("mock-")) {
+    return;
+  }
   try {
+    const connected = await isGoogleCalendarConnected(userId);
+    if (!connected) {
+      return;
+    }
+
     const calendar = await getCalendarClient(userId);
     const userDoc = await adminDb.collection("users").doc(userId).get();
     const calendarId = userDoc.data()?.googleCalendarId || "primary";
@@ -181,7 +218,8 @@ export async function updateCalendarEvent(userId: string, eventId: string, updat
     const errorMsg = err.message || "";
     const errorData = err.response?.data?.error || "";
     if (errorMsg.includes("invalid_grant") || errorData === "invalid_grant" || errorData?.message?.includes("invalid_grant")) {
-      throw new Error("Google refresh token is invalid or expired. Please re-authenticate.");
+      console.warn(`[Calendar] Google token invalid_grant during update for event ${eventId}.`);
+      return;
     }
     throw new Error(`Failed to update calendar event ${eventId}: ${err.message}`);
   }
@@ -194,7 +232,15 @@ export async function deleteCalendarEvent(userId: string, eventId: string): Prom
   if (process.env.FINISHLINE_VALIDATION_MOCK === "true") {
     return;
   }
+  if (!eventId || eventId.startsWith("local-") || eventId.startsWith("mock-")) {
+    return;
+  }
   try {
+    const connected = await isGoogleCalendarConnected(userId);
+    if (!connected) {
+      return;
+    }
+
     const calendar = await getCalendarClient(userId);
     const userDoc = await adminDb.collection("users").doc(userId).get();
     const calendarId = userDoc.data()?.googleCalendarId || "primary";
@@ -212,7 +258,8 @@ export async function deleteCalendarEvent(userId: string, eventId: string): Prom
     const errorMsg = err.message || "";
     const errorData = err.response?.data?.error || "";
     if (errorMsg.includes("invalid_grant") || errorData === "invalid_grant" || errorData?.message?.includes("invalid_grant")) {
-      throw new Error("Google refresh token is invalid or expired. Please re-authenticate.");
+      console.warn(`[Calendar] Google token invalid_grant during delete for event ${eventId}.`);
+      return;
     }
     throw new Error(`Failed to delete calendar event ${eventId}: ${err.message}`);
   }
@@ -239,21 +286,30 @@ export async function writeCommitmentBlocks(
   const commitment = commitmentDoc.data()!;
   const createdEventIds: string[] = [];
 
-  try {
-    for (const block of blocks) {
-      const event = {
-        summary: `[FinishLine] ${commitment.title}`,
-        description: `Scheduled work block for commitment: "${commitment.title}"\nCommitment ID: ${commitmentId}`,
-        start: {
-          dateTime: new Date(block.start).toISOString(),
-        },
-        end: {
-          dateTime: new Date(block.end).toISOString(),
-        },
-      };
+  const connected = await isGoogleCalendarConnected(userId);
 
-      const eventId = await createCalendarEvent(userId, event);
-      createdEventIds.push(eventId);
+  try {
+    if (connected) {
+      for (const block of blocks) {
+        const event = {
+          summary: `[FinishLine] ${commitment.title}`,
+          description: `Scheduled work block for commitment: "${commitment.title}"\nCommitment ID: ${commitmentId}`,
+          start: {
+            dateTime: new Date(block.start).toISOString(),
+          },
+          end: {
+            dateTime: new Date(block.end).toISOString(),
+          },
+        };
+
+        const eventId = await createCalendarEvent(userId, event);
+        createdEventIds.push(eventId);
+      }
+    } else {
+      console.log(`[Calendar] Google Calendar not connected for user ${userId}. Assigning local-only block IDs.`);
+      for (let i = 0; i < blocks.length; i++) {
+        createdEventIds.push("local-event-id-" + Math.random().toString(36).substring(2, 9));
+      }
     }
 
     // Write event IDs back to Firestore commitment document
@@ -275,17 +331,39 @@ export async function writeCommitmentBlocks(
 
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
-    console.error(`[Calendar] Failed to write commitment blocks. Rollback initiated: ${msg}`);
+    console.warn(`[Calendar] Failed to write commitment blocks to Google Calendar. Falling back to local-only save: ${msg}`);
 
-    // Rollback: delete all events created in this batch
+    // Rollback: delete any google events created in this failed batch (if any)
     for (const id of createdEventIds) {
-      try {
-        await deleteCalendarEvent(userId, id);
-      } catch (rollbackErr: unknown) {
-        console.error(`[Calendar] Rollback failed to delete event ${id}:`, rollbackErr);
+      if (id && !id.startsWith("local-") && !id.startsWith("mock-")) {
+        try {
+          await deleteCalendarEvent(userId, id);
+        } catch (rollbackErr: unknown) {
+          console.error(`[Calendar] Rollback failed to delete event ${id}:`, rollbackErr);
+        }
       }
     }
 
-    throw new Error(`Failed to write commitment blocks to Google Calendar: ${msg}`);
+    // Always ensure local-only blocks are saved to Firestore even on Google API failures!
+    const fallbackEventIds = blocks.map((_, idx) => createdEventIds[idx] || "local-event-id-" + Math.random().toString(36).substring(2, 9));
+    try {
+      await adminDb
+        .collection("users")
+        .doc(userId)
+        .collection("commitments")
+        .doc(commitmentId)
+        .update({
+          calendarEventIds: fallbackEventIds,
+          scheduledBlocks: blocks.map((b, idx) => ({
+            ...b,
+            calendarEventId: fallbackEventIds[idx]
+          }))
+        });
+      console.log(`[Calendar] Resiliently saved local-only blocks to Firestore after Google write error.`);
+      return fallbackEventIds;
+    } catch (saveErr: any) {
+      console.error(`[Calendar] Critical: Failed to save fallback local blocks to Firestore:`, saveErr);
+      throw new Error(`Failed to write commitment blocks: ${msg}`);
+    }
   }
 }

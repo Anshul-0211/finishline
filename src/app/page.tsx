@@ -119,19 +119,21 @@ export default function Home() {
         userObj = result.user;
       }
 
+      const idToken = await userObj.getIdToken();
+
       await fetch("/api/auth/save-tokens", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
+          "Authorization": `Bearer ${idToken}`,
         },
         body: JSON.stringify({
-          uid: userObj.uid,
+          userId: userObj.uid,
           email: userObj.email,
           displayName: userObj.displayName || email.split("@")[0],
           photoURL: userObj.photoURL || "",
-          accessToken: "",
-          refreshToken: "",
-          tokenExpiry: null,
+          calendarRefreshToken: "",
+          gmailRefreshToken: "",
         }),
       });
 

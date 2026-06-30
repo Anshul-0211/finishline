@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { Sparkles, AlertTriangle, Scale, RefreshCw, Loader2, ArrowLeft, Lightbulb, ArrowRight, Activity } from "lucide-react";
+import { Sparkles, AlertTriangle, Scale, RefreshCw, Loader2, ArrowLeft, Lightbulb, ArrowRight, Activity, Calendar, CheckCircle2, ArrowRightLeft } from "lucide-react";
 import { onAuthStateChanged } from "firebase/auth";
 import { motion, AnimatePresence } from "framer-motion";
 import { useTheme } from "next-themes";
@@ -80,6 +80,11 @@ export default function WeeklyPlanningPage() {
   const [planState, setPlanState] = useState<"idle" | "loading" | "ready" | "error">("idle");
   const [planData, setPlanData] = useState<WeeklyPlanResponse | null>(null);
   const [planError, setPlanError] = useState<string | null>(null);
+
+  // Cascade Rebalance States (TASK 5.1-A)
+  const [replanState, setReplanState] = useState<"idle" | "loading" | "ready" | "applying" | "success" | "error">("idle");
+  const [replanData, setReplanData] = useState<any | null>(null);
+  const [replanError, setReplanError] = useState<string | null>(null);
 
   useEffect(() => {
     setMounted(true);
@@ -198,6 +203,75 @@ export default function WeeklyPlanningPage() {
   const handleRegeneratePlan = () => {
     setPlanData(null);
     setPlanState("idle");
+  };
+
+  // Rebalance Trigger (TASK 5.1-A)
+  const handleTriggerRebalance = async () => {
+    if (!user) return;
+    setReplanState("loading");
+    setReplanError(null);
+    try {
+      const idToken = await user.getIdToken();
+      console.log("[Frontend] Triggering /api/ai/replan-cascade for user:", user.uid);
+      const res = await fetch("/api/ai/replan-cascade", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${idToken}`
+        },
+        body: JSON.stringify({ userId: user.uid }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      console.log("[Frontend] Cascade replanning completed:", data);
+      setReplanData(data);
+      setReplanState("ready");
+    } catch (e: any) {
+      console.error("[Frontend] handleTriggerRebalance failed:", e);
+      setReplanError(e.message ?? "Weekly re-balancing failed. Try again.");
+      setReplanState("error");
+    }
+  };
+
+  // Rebalance Apply (TASK 5.1-A)
+  const handleApplyRebalance = async () => {
+    if (!user || !replanData || !replanData.adjustments || replanData.adjustments.length === 0) return;
+    setReplanState("applying");
+    setReplanError(null);
+    try {
+      const idToken = await user.getIdToken();
+      console.log("[Frontend] Applying adjustments with /api/calendar/reallocate-blocks for user:", user.uid);
+      const res = await fetch("/api/calendar/reallocate-blocks", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${idToken}`
+        },
+        body: JSON.stringify({
+          userId: user.uid,
+          adjustments: replanData.adjustments
+        }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      console.log("[Frontend] Adjustments applied successfully:", data);
+      setReplanState("success");
+    } catch (e: any) {
+      console.error("[Frontend] handleApplyRebalance failed:", e);
+      setReplanError(e.message ?? "Applying schedule adjustments failed. Try again.");
+      setReplanState("error");
+    }
+  };
+
+  const handleResetRebalance = () => {
+    setReplanData(null);
+    setReplanState("idle");
+    setReplanError(null);
+  };
+
+  const formatBlockTime = (isoString: string) => {
+    const d = new Date(isoString);
+    return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) + " (" + d.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' }) + ")";
   };
 
   const getTitle = (id: string | null | undefined) => {
@@ -613,6 +687,229 @@ export default function WeeklyPlanningPage() {
                         {planData.weekSummary}
                       </p>
                     </div>
+                  </section>
+
+                  {/* Global Multi-Commitment Re-balancing Engine (TASK 5.1-A) */}
+                  <section className="bg-surface-container-lowest rounded-[20px] shadow-modal border border-outline-variant/30 overflow-hidden relative p-6 flex flex-col gap-4">
+                    <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-secondary to-tertiary" />
+                    
+                    <header className="flex justify-between items-start gap-4">
+                      <div className="flex items-center gap-2">
+                        <Scale className="w-5 h-5 text-secondary flex-shrink-0 animate-pulse" />
+                        <div className="flex flex-col">
+                          <span className="text-[11px] font-semibold text-secondary uppercase tracking-wider">
+                            Global Week Calibrator
+                          </span>
+                          <h3 className="text-md font-bold text-on-surface">
+                            Multi-Commitment Cascade Optimizer
+                          </h3>
+                        </div>
+                      </div>
+                      
+                      {replanState === "ready" && replanData?.aiMeta?.confidenceLabel && (
+                        <ConfidenceBadge label={replanData.aiMeta.confidenceLabel} />
+                      )}
+                    </header>
+
+                    {replanState === "idle" && (
+                      <div className="space-y-4">
+                        <p className="text-[13.5px] text-on-surface-variant leading-relaxed font-sans">
+                          Your weekly calendar blocks can get cluttered with overlaps and missed deadlines as priorities shift. Run our global rebalancing engine to automatically detect conflicts, align blocks with your <strong>attention span ({userProfile?.learningCoefficients?.averageAttentionSpanMinutes ?? 35} mins)</strong>, factor in underestimation risks, and distribute tasks smoothly into preferred slots.
+                        </p>
+                        <PillButton
+                          variant="primary"
+                          onClick={handleTriggerRebalance}
+                          className="w-full h-11 text-[13.5px] font-bold flex items-center justify-center gap-2 hover:scale-[1.01] transition-transform duration-200"
+                        >
+                          <RefreshCw className="w-4 h-4 flex-shrink-0" />
+                          <span>Optimize Calendar & Resolve Overlaps</span>
+                        </PillButton>
+                      </div>
+                    )}
+
+                    {replanState === "loading" && (
+                      <div className="flex flex-col items-center justify-center text-center py-6 gap-3">
+                        <Loader2 className="w-8 h-8 text-secondary animate-spin" />
+                        <div className="space-y-1">
+                          <p className="text-[14px] font-bold text-on-surface">
+                            Recalibrating Weekly Commitments...
+                          </p>
+                          <p className="text-xs text-on-surface-variant animate-pulse">
+                            Gemini is running global collision-avoidance checks
+                          </p>
+                        </div>
+                      </div>
+                    )}
+
+                    {replanState === "ready" && replanData && (
+                      <div className="space-y-4">
+                        {/* Summary / Reasoning from AI */}
+                        <div className="bg-surface-container-low rounded-xl p-3.5 border border-outline-variant/20">
+                          <p className="text-[13.5px] text-on-surface leading-relaxed font-sans">
+                            {replanData.summary}
+                          </p>
+                        </div>
+
+                        {/* Amber Review Banner for Rebalance */}
+                        {(replanData.requiresUserReview || (replanData.aiMeta?.confidence !== undefined && replanData.aiMeta.confidence < 0.5)) && (
+                          <AmberReviewBanner message={replanData.reviewReason ?? `Low AI Confidence (${Math.round((replanData.aiMeta?.confidence ?? 0) * 100)}%): ${replanData.aiMeta?.reasoning}`} />
+                        )}
+
+                        {/* If no adjustments needed (zero schedule churn rule) */}
+                        {(!replanData.adjustments || replanData.adjustments.length === 0) ? (
+                          <div className="bg-tertiary/10 border border-tertiary/20 rounded-xl p-4 flex items-start gap-3">
+                            <CheckCircle2 className="w-5 h-5 text-tertiary flex-shrink-0 mt-0.5" />
+                            <div className="space-y-1">
+                              <h4 className="text-[13px] font-bold text-tertiary uppercase tracking-wide leading-none">
+                                Perfectly Aligned!
+                              </h4>
+                              <p className="text-[13px] text-on-surface font-sans leading-relaxed">
+                                No scheduling conflicts, overlaps, or capacity breaches detected. Your current calendar setup is fully balanced for the week!
+                              </p>
+                            </div>
+                          </div>
+                        ) : (
+                          // If adjustments are suggested
+                          <div className="space-y-3">
+                            <div className="flex justify-between items-center px-1">
+                              <span className="text-[11px] font-semibold text-outline uppercase tracking-wider">
+                                Proposed Shifts ({replanData.adjustments.length})
+                              </span>
+                              <span className="text-[11px] font-bold text-secondary-container bg-secondary/15 px-2 py-0.5 rounded-full">
+                                Avoids Churn
+                              </span>
+                            </div>
+
+                            {/* Scrollable list of proposed block shifts */}
+                            <div className="max-h-[220px] overflow-y-auto pr-1 space-y-2.5 custom-scrollbar">
+                              <AnimatePresence>
+                                {replanData.adjustments.map((adj: any, idx: number) => (
+                                  <motion.div
+                                    key={idx}
+                                    initial={{ opacity: 0, y: 10 }}
+                                    animate={{ opacity: 1, y: 0 }}
+                                    transition={{ delay: idx * 0.05 }}
+                                    className="bg-surface-container-low hover:bg-surface-container-high transition-colors rounded-xl p-3 border border-outline-variant/10 shadow-sm flex flex-col gap-2"
+                                  >
+                                    <div className="flex justify-between items-center gap-2">
+                                      <span className="text-[13.5px] font-bold text-on-surface truncate">
+                                        {adj.commitmentTitle}
+                                      </span>
+                                      <span className="text-[10px] font-extrabold text-outline uppercase bg-surface-container-lowest px-2 py-0.5 rounded border border-outline-variant/10">
+                                        Shift
+                                      </span>
+                                    </div>
+
+                                    <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2 text-xs">
+                                      <div className="bg-surface-container-lowest p-2 rounded-lg border border-error/10">
+                                        <span className="text-[9px] font-extrabold text-error uppercase tracking-widest block mb-0.5">Original</span>
+                                        <span className="text-on-surface-variant font-medium leading-none block truncate">
+                                          {formatBlockTime(adj.originalBlock.start)}
+                                        </span>
+                                      </div>
+
+                                      <ArrowRightLeft className="w-3.5 h-3.5 text-outline" />
+
+                                      <div className="bg-surface-container-lowest p-2 rounded-lg border border-tertiary/20">
+                                        <span className="text-[9px] font-extrabold text-tertiary uppercase tracking-widest block mb-0.5">Proposed</span>
+                                        <span className="text-primary font-bold leading-none block truncate">
+                                          {formatBlockTime(adj.proposedBlock.start)}
+                                        </span>
+                                      </div>
+                                    </div>
+                                  </motion.div>
+                                ))}
+                              </AnimatePresence>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Actions for ready state */}
+                        <div className="pt-3 border-t border-outline-variant/20 flex gap-2">
+                          {replanData.adjustments && replanData.adjustments.length > 0 && (
+                            <PillButton
+                              variant="primary"
+                              onClick={handleApplyRebalance}
+                              className="flex-1 h-10 text-[13px] font-bold flex items-center justify-center gap-1.5 animate-pulse"
+                            >
+                              <span>Apply Changes</span>
+                            </PillButton>
+                          )}
+                          <PillButton
+                            variant="outline"
+                            onClick={handleResetRebalance}
+                            className="flex-1 h-10 text-[13px] font-bold"
+                          >
+                            <span>{replanData.adjustments && replanData.adjustments.length > 0 ? "Cancel" : "Done"}</span>
+                          </PillButton>
+                        </div>
+                      </div>
+                    )}
+
+                    {replanState === "applying" && (
+                      <div className="flex flex-col items-center justify-center text-center py-6 gap-3">
+                        <Loader2 className="w-8 h-8 text-primary animate-spin" />
+                        <div className="space-y-1">
+                          <p className="text-[14px] font-bold text-on-surface">
+                            Executing Batch Rescheduling...
+                          </p>
+                          <p className="text-xs text-on-surface-variant animate-pulse">
+                            Writing atomic database and Google Calendar events...
+                          </p>
+                        </div>
+                      </div>
+                    )}
+
+                    {replanState === "success" && (
+                      <div className="flex flex-col items-center justify-center text-center py-6 gap-4">
+                        <div className="w-12 h-12 bg-tertiary/10 text-tertiary rounded-full flex items-center justify-center text-xl shadow-sm">
+                          🎉
+                        </div>
+                        <div className="space-y-1 max-w-[320px]">
+                          <p className="text-[15px] font-black text-on-surface leading-tight">
+                            Calendar Successfully Calibrated!
+                          </p>
+                          <p className="text-xs text-on-surface-variant leading-relaxed font-sans">
+                            Your commitments have been rescheduled seamlessly on Google Calendar and Firestore. Overlaps are resolved, and dashboard stress levels have been updated!
+                          </p>
+                        </div>
+                        <PillButton
+                          variant="primary"
+                          onClick={handleResetRebalance}
+                          className="w-full max-w-[160px] h-9 text-xs font-bold"
+                        >
+                          Dismiss
+                        </PillButton>
+                      </div>
+                    )}
+
+                    {replanState === "error" && (
+                      <div className="space-y-4">
+                        <div className="flex items-start gap-2.5 p-3 bg-error-container text-on-error-container rounded-xl text-xs font-medium border border-error/20">
+                          <AlertTriangle className="w-4 h-4 text-error flex-shrink-0 mt-0.5" />
+                          <div className="space-y-0.5">
+                            <span className="font-bold block">Rebalancing Failed</span>
+                            <span className="opacity-90">{replanError}</span>
+                          </div>
+                        </div>
+                        <div className="flex gap-2">
+                          <PillButton
+                            variant="primary"
+                            onClick={handleTriggerRebalance}
+                            className="flex-1 h-9 text-xs font-bold"
+                          >
+                            Try Again
+                          </PillButton>
+                          <PillButton
+                            variant="outline"
+                            onClick={handleResetRebalance}
+                            className="flex-1 h-9 text-xs font-bold"
+                          >
+                            Cancel
+                          </PillButton>
+                        </div>
+                      </div>
+                    )}
                   </section>
 
                   {/* Daily Focus Timeline */}
